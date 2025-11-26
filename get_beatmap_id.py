@@ -7,11 +7,11 @@ import unicodedata
 offsetcount = 0
 
 while True:
-    if offsetcount<=3100:
-        with open("C:/Users/Komachi/Desktop/osu!_script/beatmap_id.txt",'a+') as f:
+    if offsetcount<=3598:
+        with open("C:/Users/Emilico/Desktop/osubeatmapdownloader/beatmap_id.txt",'a+') as f:
             user_id = 14201430
-            number_of_maps = 3022
-            osu_session_cookie = str("eyJpdiI6InhQVnM1WTFOcXhWWFpJWE1rdW5vbFE9PSIsInZhbHVlIjoiUzJJdUNRWUs3L3E3WVlLSEJva0dzTERvOWhmeHJtQTlXK05GVDV4U1lRVnhqaWJEZVRxMStFajAxUCtHUkNmSUcvUVlndFErV1A5clo5V3JxdVZuWnVPa0UrK0toTGgzdXRVTnp1R0owZUcvRWZiZkRKVEkzbi9iME1PV1lmaWptY0QwQ3NrWmZWdnFKQWZvcExhSnJ3PT0iLCJtYWMiOiIwOWY1NTMzNzVhZDgwMzIxODI3ODI0NzI0M2I4MmUzOWViZThmZjViMDE4NmIzMzgyMzU0ZWY4YzVjZGRhNzdjIiwidGFnIjoiIn0%3D")
+            number_of_maps = 3600
+            osu_session_cookie = str("eyJpdiI6IjZHRWpBaXdjc3ZIc1RqcDlKU0dqRlE9PSIsInZhbHVlIjoiK3ZmSEY1Vnh5VVFzUkxDYnVWelVMU24rcisvYWJDUnM4S09VaCs4NW1MbllTajJheVNyRmpYc0YvUkI4dm9OdURjQnp0R1gxU09Pb0hEdEJaSCthRjRSREltLzAvdVBSNURuc0VUenVlSGxsRnNEbTkyblJYc05aNStxWkoxNkRXMEF3dGdLOVZlaGFSZUFjd0NpSGFRPT0iLCJtYWMiOiI4ZmEwZTQ1MzQ0NzdmYmQwYjIwYzhlMWRiMTNmNzdmZGE2OGEyYzIxMzJhNTA3N2Q0YmFmZWNlOTFiNzNiMmY0IiwidGFnIjoiIn0%3D")
 
             r = requests.get(f'https://osu.ppy.sh/users/{user_id}/beatmapsets/most_played?offset={offsetcount}&limit={number_of_maps}')
             data = r.json()
