@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Build output
+build/
+dist/
+*.spec
+
+# Created by the app at runtime (settings, saved session, downloads)
+data/
+downloads/
+*.osz
+*.crdownload
+
+# Old local Chrome profile from the original scripts
+osu_selenium_profile/

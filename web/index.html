@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>osu! Beatmap Downloader</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='46' fill='%23ff66aa'/><circle cx='50' cy='50' r='30' fill='none' stroke='white' stroke-width='8'/></svg>">
+<style>
+:root {
+  --bg: #17141a; --panel: #211d25; --panel-2: #2a2530; --line: #3a3342;
+  --text: #f1edf5; --muted: #a79fb0; --dim: #756d7e;
+  --pink: #ff66aa; --pink-2: #ff8cc0; --pink-soft: rgba(255,102,170,.14);
+  --green: #6fdc8c; --yellow: #ffd166; --red: #ff6b7a; --blue: #7cc4ff;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f3f8; --panel: #ffffff; --panel-2: #f3eff6; --line: #e4dde9;
+    --text: #211b26; --muted: #6c6375; --dim: #9a91a3;
+    --pink: #e23d8a; --pink-2: #c92f77; --pink-soft: rgba(226,61,138,.10);
+    --green: #1f9d4c; --yellow: #b7791f; --red: #d63a4a; --blue: #2b7fd1;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--pink); }
+button, input, select, textarea { font: inherit; color: inherit; }
+.wrap { max-width: 880px; margin: 0 auto; padding: 24px 16px 80px; }
+
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+.logo { width: 38px; height: 38px; flex: none; }
+header h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+header p { margin: 0; color: var(--muted); font-size: 13px; }
+.grow { flex: 1; }
+.chip-user { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px 6px 4px 4px; font-size: 14px; }
+.chip-user img { width: 28px; height: 28px; border-radius: 50%; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+.card h2 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 10px; }
+.card h2 .n { width: 24px; height: 24px; border-radius: 50%; background: var(--pink-soft); color: var(--pink);
+  display: inline-grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
+.card h2 .n.ok { background: var(--pink); color: #fff; }
+.card .sub { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+.card.locked { opacity: .5; pointer-events: none; }
+
+label.f { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+input[type=text], input[type=password], input[type=number], select, textarea {
+  width: 100%; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; outline: none; min-width: 0;
+}
+textarea { min-height: 120px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+input:focus, select:focus, textarea:focus { border-color: var(--pink); box-shadow: 0 0 0 3px var(--pink-soft); }
+.row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.row > .grow { min-width: 200px; }
+.field { margin-bottom: 14px; }
+
+.btn { border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 9px 14px;
+  cursor: pointer; font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { border-color: var(--dim); }
+a.btn { color: inherit; text-decoration: none; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--pink); border-color: var(--pink); color: #fff; }
+.btn.primary:hover { background: var(--pink-2); }
+.btn.big { padding: 12px 22px; font-size: 16px; border-radius: 12px; }
+.btn.ghost { background: transparent; }
+.btn.danger { color: var(--red); }
+.btn.sm { padding: 5px 10px; font-size: 13px; border-radius: 8px; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--pink); cursor: pointer; font-weight: 600; }
+
+.tabs { display: inline-flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; margin-bottom: 16px; }
+.tabs button { border: 0; background: none; padding: 7px 14px; border-radius: 8px; cursor: pointer; color: var(--muted); font-weight: 600; }
+.tabs button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+
+details { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 12px; }
+summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; }
+summary:hover { color: var(--text); }
+.help { background: var(--panel-2); border-radius: 10px; padding: 12px 16px; font-size: 14px; color: var(--muted); margin-top: 10px; }
+.help ol { margin: 6px 0; padding-left: 20px; }
+.help b { color: var(--text); }
+kbd { background: var(--panel); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; font-size: 12px; }
+.warn { color: var(--yellow); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 12px; }
+.check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: 14px; }
+.check input { accent-color: var(--pink); width: 16px; height: 16px; margin-top: 3px; flex: none; }
+.check small { display: block; color: var(--dim); }
+
+.choice { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.choice label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; background: var(--panel-2); }
+.choice label:has(input:checked) { border-color: var(--pink); background: var(--pink-soft); }
+.choice input { accent-color: var(--pink); margin-top: 4px; flex: none; }
+.choice b { display: block; }
+.choice small { color: var(--dim); display: block; }
+.choice .where { margin-top: 4px; display: flex; gap: 6px; min-width: 0; }
+.choice .where .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.choice .grow { min-width: 0; }
+.badge { font-size: 11px; font-weight: 700; color: #fff; background: var(--pink); border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: 1px; }
+.missing { color: var(--yellow); }
+.tip { position: relative; display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%;
+  border: 1px solid var(--dim); color: var(--muted); font-size: 11px; font-weight: 700; cursor: help; margin-left: 4px;
+  vertical-align: 1px; font-style: normal; }
+.tip:hover, .tip:focus { border-color: var(--pink); color: var(--pink); outline: none; }
+.tip-body { display: none; position: absolute; left: -12px; bottom: calc(100% + 8px); z-index: 5; width: min(320px, 78vw);
+  background: var(--text); color: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 13px; font-weight: 400;
+  line-height: 1.5; text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,.3); cursor: default; }
+.tip:hover .tip-body, .tip:focus .tip-body, .tip:focus-within .tip-body { display: block; }
+
+.progress { height: 10px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin: 14px 0 10px; }
+.progress > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--pink), var(--pink-2)); transition: width .4s; }
+.stats { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.stat { background: var(--panel-2); border-radius: 999px; padding: 3px 10px; color: var(--muted); border: 1px solid transparent; cursor: pointer; }
+.stat b { color: var(--text); font-variant-numeric: tabular-nums; }
+.stat.on { border-color: var(--pink); color: var(--text); }
+.now { display: flex; gap: 12px; align-items: center; min-height: 20px; color: var(--muted); font-size: 14px; }
+.spinner { width: 14px; height: 14px; border: 2px solid var(--pink-soft); border-top-color: var(--pink); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.list { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; max-height: 460px; overflow: auto; }
+.item { display: flex; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.item:last-child { border-bottom: 0; }
+.item img { width: 64px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--panel-2); flex: none; }
+.item .meta { flex: 1; min-width: 0; }
+.item .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .a { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .a a { color: var(--dim); text-decoration: none; }
+.item .a a:hover { color: var(--pink); }
+.item .err { color: var(--red); font-size: 12px; }
+.pill { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.s-queued .pill { background: var(--panel-2); color: var(--muted); }
+.s-downloading { background: var(--pink-soft); }
+.s-downloading .pill { background: var(--pink); color: #fff; }
+.s-done .pill { background: rgba(111,220,140,.15); color: var(--green); }
+.s-failed .pill { background: rgba(255,107,122,.15); color: var(--red); }
+.s-have .pill, .s-skipped .pill, .s-cancelled .pill { background: var(--panel-2); color: var(--dim); }
+.s-have .meta, .s-skipped .meta { opacity: .6; }
+.empty { padding: 36px 16px; text-align: center; color: var(--dim); }
+
+.done-banner { display: none; background: linear-gradient(135deg, var(--pink-soft), transparent); border: 1px solid var(--pink);
+  border-radius: 12px; padding: 16px; margin-top: 16px; align-items: center; gap: 14px; flex-wrap: wrap; }
+.done-banner.show { display: flex; }
+.done-banner .big-emoji { font-size: 28px; }
+
+.log { margin-top: 10px; background: var(--panel-2); border-radius: 10px; padding: 10px 12px; max-height: 220px; overflow: auto;
+  font: 12px/1.6 ui-monospace, Consolas, monospace; }
+.log div { white-space: pre-wrap; word-break: break-word; }
+.log .t { color: var(--dim); margin-right: 8px; }
+.log .ok { color: var(--green); } .log .warn { color: var(--yellow); } .log .error { color: var(--red); }
+
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0;
+  background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 10px; font-weight: 600;
+  transition: .25s; pointer-events: none; max-width: calc(100% - 32px); z-index: 9; }
+#toast.show { opacity: 1; transform: translateX(-50%); }
+#toast.bad { background: var(--red); color: #fff; }
+.hidden { display: none !important; }
+footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30px; }
+
+@media (max-width: 560px) {
+  .card { padding: 16px; }
+  .item img { width: 48px; height: 34px; }
+  .btn.big { width: 100%; justify-content: center; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="var(--pink)"/><circle cx="50" cy="50" r="30" fill="none" stroke="#fff" stroke-width="8"/><path d="M50 36v24m-10-9 10 10 10-10" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div>
+    <h1>osu! Beatmap Downloader</h1>
+    <p>Bulk-download beatmaps in the background, then import them into osu! in one click.</p>
+  </div>
+  <div class="grow"></div>
+  <div id="userChip" class="chip-user hidden">
+    <img id="userAvatar" alt="">
+    <span id="userName"></span>
+    <button class="btn sm ghost" onclick="api('logout').then(poll)">Sign out</button>
+  </div>
+</header>
+
+<!-- STEP 1 -->
+<section class="card" id="step1">
+  <h2><span class="n" id="n1">1</span> Connect your osu! account</h2>
+  <div id="loginForm">
+    <p class="sub">osu! only lets signed-in players download maps. Paste your session cookie so the downloader can act as you.</p>
+    <div class="row">
+      <div class="grow">
+        <label class="f" for="cookie">osu_session cookie</label>
+        <input id="cookie" type="password" placeholder="eyJpdiI6…" autocomplete="off" spellcheck="false">
+      </div>
+      <button class="btn primary" id="loginBtn" onclick="login()">Connect</button>
+    </div>
+    <label class="check" style="margin-top:10px">
+      <input type="checkbox" id="remember" checked>
+      <span>Remember me on this computer <small>Saved only in this app's data folder.</small></span>
+    </label>
+    <details>
+      <summary>Where do I find my cookie?</summary>
+      <div class="help">
+        <ol>
+          <li>Sign in at <a href="https://osu.ppy.sh" target="_blank" rel="noopener">osu.ppy.sh</a> in your normal browser.</li>
+          <li>Press <kbd>F12</kbd> to open developer tools.</li>
+          <li><b>Chrome / Edge:</b> Application tab → Cookies → <code>https://osu.ppy.sh</code>.<br>
+              <b>Firefox:</b> Storage tab → Cookies → <code>https://osu.ppy.sh</code>.</li>
+          <li>Find the row named <b>osu_session</b> and copy its <b>Value</b>.</li>
+        </ol>
+        <span class="warn">⚠ Treat this like a password — anyone with it can use your account. Signing out of osu! in your browser invalidates it.</span>
+      </div>
+    </details>
+  </div>
+  <p class="sub hidden" id="loginDone" style="margin:0">You're connected. The downloader signs in with your session — no need to close Chrome.</p>
+</section>
+
+<!-- STEP 2 -->
+<section class="card" id="step2">
+  <h2><span class="n" id="n2">2</span> Choose beatmaps</h2>
+  <p class="sub">Grab maps from any player's profile, or paste a list a friend shared with you.</p>
+
+  <div class="tabs" role="tablist">
+    <button class="on" data-tab="profile" onclick="tab('profile')">From a profile</button>
+    <button data-tab="list" onclick="tab('list')">From a list</button>
+  </div>
+
+  <div id="tab-profile">
+    <div class="row">
+      <div class="grow">
+        <label class="f" for="userQuery">Player</label>
+        <input id="userQuery" type="text" placeholder="Leave empty for yourself, or type a username / profile link">
+      </div>
+      <div style="width:170px">
+        <label class="f" for="kind">List</label>
+        <select id="kind">
+          <option value="most_played">Most played</option>
+          <option value="favourite">Favourites</option>
+          <option value="ranked">Ranked maps they made</option>
+          <option value="loved">Loved maps they made</option>
+          <option value="guest">Guest difficulties</option>
+          <option value="graveyard">Graveyard</option>
+        </select>
+      </div>
+      <div style="width:110px">
+        <label class="f" for="limit">How many</label>
+        <input id="limit" type="number" min="1" max="20000" value="100">
+      </div>
+      <button class="btn primary" id="fetchBtn" onclick="fetchMaps()">Find maps</button>
+    </div>
+  </div>
+
+  <div id="tab-list" class="hidden">
+    <label class="f" for="pasteBox">Beatmap IDs or links — one per line</label>
+    <textarea id="pasteBox" placeholder="1293358&#10;https://osu.ppy.sh/beatmapsets/914756#osu/1911308&#10;…"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="btn primary" onclick="pasteList()">Load list</button>
+      <label class="btn">Open .txt file…<input type="file" accept=".txt,text/plain" hidden onchange="loadFile(this)"></label>
+    </div>
+  </div>
+
+  <details>
+    <summary>Folders & options</summary>
+    <div style="margin-top:14px">
+      <div class="field">
+        <label class="f" for="folder">Save downloads to</label>
+        <div class="row">
+          <input id="folder" type="text" class="grow" onchange="saveSettings({folder: this.value})">
+          <button class="btn" onclick="browse('folder', 'Where should beatmaps be saved?')">Browse…</button>
+          <button class="btn ghost" onclick="api('open-folder', {which: 'downloads'})">Open</button>
+        </div>
+      </div>
+      <div class="field">
+        <label class="f" for="songsDir">osu!stable Songs folder <span style="font-weight:400">(optional — skips maps you already own)</span></label>
+        <div class="row">
+          <input id="songsDir" type="text" class="grow" placeholder="e.g. C:\Users\you\AppData\Local\osu!\Songs" onchange="saveSettings({songs_dir: this.value})">
+          <button class="btn" onclick="browse('songsDir', 'Select your osu! Songs folder')">Browse…</button>
+          <a class="btn ghost" href="/api/export?which=library" id="exportLib" title="Save the IDs of every map in your Songs folder to share with friends">Export my library</a>
+        </div>
+      </div>
+      <div class="field">
+        <span class="f" style="display:block">Import into
+          <i class="tip" tabindex="0" aria-label="About osu!stable vs osu!lazer">i
+            <span class="tip-body" role="tooltip">
+              <b>osu!lazer</b> stores beatmaps as files named by their SHA-256 hash, so you won't see normal
+              song folders you can browse, back up or share.<br><br>
+              Importing into <b>osu!stable</b> keeps a regular <code>Songs</code> folder — and you can still use
+              those maps in lazer by pointing it at your stable install
+              (lazer → Settings → Maintenance → import from stable).
+            </span>
+          </i>
+        </span>
+        <div class="choice" role="radiogroup">
+          <label><input type="radio" name="client" value="stable">
+            <span class="grow"><b>osu!stable<span class="badge">Recommended</span></b><small>Keeps a normal Songs folder</small>
+              <small class="where" id="whereStable"></small></span></label>
+          <label><input type="radio" name="client" value="lazer">
+            <span class="grow"><b>osu!lazer</b><small>Stores maps in its own hashed file store</small>
+              <small class="where" id="whereLazer"></small></span></label>
+        </div>
+      </div>
+      <div class="grid2">
+        <label class="check"><input type="checkbox" data-opt="no_video"><span>Skip videos<small>Smaller downloads</small></span></label>
+        <label class="check"><input type="checkbox" data-opt="auto_open"><span>Import as they finish<small>Sends each map to osu! right away</small></span></label>
+        <label class="check"><input type="checkbox" data-opt="show_browser"><span>Show the browser<small>For troubleshooting</small></span></label>
+      </div>
+      <div class="grid2">
+        <div><label class="f">Seconds between maps</label><input type="number" min="0" step="0.5" data-opt="delay"></div>
+        <div><label class="f">Rest after every … maps</label><input type="number" min="1" data-opt="batch"></div>
+        <div><label class="f">Rest length (s)</label><input type="number" min="0" data-opt="rest"></div>
+        <div><label class="f">Cooldown when rate limited (s)</label><input type="number" min="0" data-opt="cooldown"></div>
+      </div>
+      <div class="help">
+        <b>Missing some maps?</b> Turn on <i>Show explicit content</i> in your
+        <a href="https://osu.ppy.sh/home/account/edit" target="_blank" rel="noopener">osu! account settings</a>
+        — otherwise osu! hides the download button for those maps.
+        <br><span id="historyInfo"></span>
+      </div>
+    </div>
+  </details>
+</section>
+
+<!-- STEP 3 -->
+<section class="card" id="step3">
+  <h2><span class="n" id="n3">3</span> Download</h2>
+  <p class="sub">Chrome runs invisibly in the background. Feel free to minimise this tab.</p>
+  <div class="row" style="align-items:center">
+    <button class="btn primary big" id="startBtn" onclick="act('start')">Start downloading</button>
+    <button class="btn big hidden" id="pauseBtn" onclick="act('pause')">Pause</button>
+    <button class="btn big danger hidden" id="stopBtn" onclick="act('stop')">Stop</button>
+    <div class="grow"></div>
+    <button class="btn sm ghost" id="retryBtn" onclick="act('retry')">Retry failed</button>
+    <button class="btn sm ghost" onclick="clearQueue()">Clear</button>
+  </div>
+
+  <div class="progress"><div id="bar"></div></div>
+  <div class="now" id="now"></div>
+
+  <div class="stats" id="stats" style="margin-top:10px"></div>
+
+  <div class="list" id="list"><div class="empty">Your queue is empty — pick some beatmaps above.</div></div>
+
+  <div class="done-banner" id="doneBanner">
+    <div class="big-emoji">🎉</div>
+    <div class="grow">
+      <b id="doneTitle">All done!</b>
+      <div class="sub" style="margin:0" id="doneSub">Send them to osu! to import.</div>
+    </div>
+    <button class="btn primary" id="importAll" onclick="act('open-all')">Import all into osu!</button>
+    <button class="btn" onclick="api('open-folder', {which: 'downloads'})">Show folder</button>
+    <a class="btn ghost" id="exportFailed" href="/api/export?which=failed">Save failed list</a>
+  </div>
+
+  <details id="logBox">
+    <summary>Activity log</summary>
+    <div class="log" id="log"></div>
+  </details>
+</section>
+
+<footer>
+  Not affiliated with ppy. Please be kind to osu!'s servers — keep the delays sensible.
+  · <a href="/api/export?which=all">Export queue</a>
+</footer>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let S = null, logSince = 0, filter = 'all', listSig = '', wasRunning = false;
+
+const STATUS = {
+  queued: 'Queued', downloading: 'Downloading', done: 'Done', failed: 'Failed',
+  have: 'Already have', skipped: 'Skipped', cancelled: 'Cancelled',
+};
+
+async function api(name, body = {}) {
+  const r = await fetch('/api/' + name, {
+    method: 'POST', headers: {'Content-Type': 'application/json', 'X-Osu-Dl': '1'},
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({ok: false, error: 'Unexpected response'}));
+  if (!j.ok) { toast(j.error, true); throw new Error(j.error); }
+  return j;
+}
+async function act(name, body) { try { await api(name, body); } catch {} poll(); }
+
+function toast(msg, bad) {
+  const t = $('toast');
+  t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.className = '', bad ? 5000 : 2500);
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function tab(name) {
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  $('tab-profile').classList.toggle('hidden', name !== 'profile');
+  $('tab-list').classList.toggle('hidden', name !== 'list');
+}
+
+function login() {
+  act('login', {cookie: $('cookie').value, remember: $('remember').checked});
+  $('cookie').value = '';
+}
+
+function fetchMaps() {
+  act('fetch', {user: $('userQuery').value, kind: $('kind').value, limit: +$('limit').value});
+}
+
+function pasteList() { act('paste', {text: $('pasteBox').value}); }
+
+function loadFile(input) {
+  const f = input.files[0]; if (!f) return;
+  f.text().then(t => { $('pasteBox').value = t; pasteList(); });
+  input.value = '';
+}
+
+function clearQueue() {
+  if (S?.queue.length && !confirm('Clear the whole queue?')) return;
+  act('clear-queue');
+}
+
+async function browse(inputId, title) {
+  try {
+    const {path} = await api('browse', {initial: $(inputId).value, title});
+    if (!path) return;
+    $(inputId).value = path;
+    saveSettings(inputId === 'folder' ? {folder: path} : {songs_dir: path});
+  } catch {}
+}
+
+async function locate(client) {
+  try {
+    const {path} = await api('browse', {title: `Select the folder that contains osu!${client}'s osu!.exe`});
+    if (path) await act('settings', {osu_paths: {[client]: path}});
+  } catch {}
+}
+
+function saveSettings(body) { act('settings', body).then(() => toast('Saved')); }
+
+document.querySelectorAll('[data-opt]').forEach(el => el.addEventListener('change', () => {
+  const v = el.type === 'checkbox' ? el.checked : Number(el.value);
+  act('settings', {opts: {[el.dataset.opt]: v}});
+}));
+document.querySelectorAll('input[name=client]').forEach(el => el.addEventListener('change', () => {
+  act('settings', {opts: {import_client: el.value}});
+}));
+$('cookie').addEventListener('keydown', e => e.key === 'Enter' && login());
+$('userQuery').addEventListener('keydown', e => e.key === 'Enter' && fetchMaps());
+
+function setFilter(f) { filter = f; listSig = ''; render(); }
+
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec <= 0) return '';
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  return h ? `${h}h ${m}m` : m ? `${m} min` : 'under a minute';
+}
+
+function render() {
+  if (!S) return;
+  const signedIn = !!S.user;
+
+  // step 1
+  $('userChip').classList.toggle('hidden', !signedIn);
+  if (signedIn) { $('userName').textContent = S.user.username; $('userAvatar').src = S.user.avatar || ''; }
+  $('loginForm').classList.toggle('hidden', signedIn);
+  $('loginDone').classList.toggle('hidden', !signedIn);
+  $('n1').classList.toggle('ok', signedIn); $('n1').textContent = signedIn ? '✓' : '1';
+  $('loginBtn').disabled = !!S.busy;
+
+  // step 2 — only fill inputs the user isn't editing
+  const setVal = (el, v) => { if (document.activeElement !== el) el.value = v; };
+  setVal($('folder'), S.folder); setVal($('songsDir'), S.songs_dir);
+  if (!$('userQuery').dataset.init) { $('userQuery').value = S.last_user_query; $('userQuery').dataset.init = 1; }
+  document.querySelectorAll('[data-opt]').forEach(el => {
+    if (el.type === 'checkbox') el.checked = !!S.opts[el.dataset.opt]; else setVal(el, S.opts[el.dataset.opt]);
+  });
+  $('exportLib').classList.toggle('hidden', !S.songs_dir);
+  const client = S.opts.import_client || 'stable';
+  document.querySelectorAll('input[name=client]').forEach(el => el.checked = el.value === client);
+  for (const [c, id] of [['stable', 'whereStable'], ['lazer', 'whereLazer']]) {
+    const path = S.clients[c];
+    const sig = c + '|' + path;
+    if ($(id).dataset.sig === sig) continue;  // don't rebuild under the cursor every poll
+    $(id).dataset.sig = sig;
+    $(id).innerHTML = (path
+      ? `<span class="path" title="${esc(path)}">Found: ${esc(path)}</span>`
+      : `<span class="missing">Not found on this PC</span>`)
+      + ` · <button class="linkbtn" onclick="event.preventDefault(); locate('${c}')">${path ? 'Change' : 'Locate…'}</button>`;
+  }
+  $('importAll').textContent = `Import all into osu!${client}`;
+  $('historyInfo').innerHTML = S.history_count
+    ? `This app remembers ${S.history_count} maps you've downloaded and skips them. <button class="linkbtn" onclick="if(confirm('Forget download history?')) act('clear-history')">Forget</button> · <a href="/api/export?which=history">Export</a>`
+    : '';
+  $('fetchBtn').disabled = !!S.busy || S.running;
+  const hasQueue = S.queue.length > 0;
+  $('n2').classList.toggle('ok', hasQueue); $('n2').textContent = hasQueue ? '✓' : '2';
+  $('step2').classList.toggle('locked', S.running);
+
+  // step 3
+  const c = S.counts, total = S.queue.length;
+  const want = (c.queued || 0) + (c.downloading || 0) + (c.done || 0) + (c.failed || 0) + (c.cancelled || 0);
+  const finished = (c.done || 0) + (c.failed || 0);
+  $('bar').style.width = want ? (100 * finished / want) + '%' : '0';
+
+  $('startBtn').classList.toggle('hidden', S.running);
+  $('startBtn').disabled = !signedIn || !c.queued;
+  $('startBtn').textContent = !signedIn ? 'Connect your account first'
+    : c.queued ? `Download ${c.queued} map${c.queued === 1 ? '' : 's'}` : 'Nothing to download';
+  $('pauseBtn').classList.toggle('hidden', !S.running);
+  $('pauseBtn').textContent = S.paused ? 'Resume' : 'Pause';
+  $('stopBtn').classList.toggle('hidden', !S.running);
+  $('retryBtn').classList.toggle('hidden', S.running || !((c.failed || 0) + (c.cancelled || 0)));
+
+  const cur = S.queue.find(i => i.status === 'downloading');
+  let now = '';
+  if (S.busy) now = `<div class="spinner"></div>${esc(S.busy)}`;
+  else if (S.running && S.paused) now = '⏸ Paused';
+  else if (S.running) {
+    const perMap = (S.opts.delay || 0) + 4 + (S.opts.rest || 0) / (S.opts.batch || 60);
+    const eta = fmtTime((c.queued || 0) * perMap);
+    now = `<div class="spinner"></div>` + (cur ? `Downloading <b>${esc(cur.title || '#' + cur.id)}</b>` : 'Working…')
+        + ` <span class="grow"></span> ${finished}/${want}${eta ? ' · ~' + eta + ' left' : ''}`;
+  } else if (total) now = `${total} map${total === 1 ? '' : 's'} in queue` + (c.have ? ` · ${c.have} skipped because you already have them` : '');
+  $('now').innerHTML = now;
+  $('n3').classList.toggle('ok', !S.running && !!c.done && !c.queued);
+
+  const statKeys = ['all', 'queued', 'downloading', 'done', 'failed', 'have', 'skipped', 'cancelled'];
+  $('stats').innerHTML = total ? statKeys.filter(k => k === 'all' || c[k]).map(k =>
+    `<span class="stat ${filter === k ? 'on' : ''}" onclick="setFilter('${k}')">${k === 'all' ? 'All' : STATUS[k]} <b>${k === 'all' ? total : c[k]}</b></span>`
+  ).join('') : '';
+
+  const sig = filter + '|' + S.queue.map(i => i.id + i.status + (i.title ? 1 : 0)).join(',');
+  if (sig !== listSig) {
+    listSig = sig;
+    const rows = S.queue.filter(i => filter === 'all' || i.status === filter);
+    const shown = rows.slice(0, 500);
+    $('list').innerHTML = !rows.length
+      ? `<div class="empty">${total ? 'Nothing here.' : 'Your queue is empty — pick some beatmaps above.'}</div>`
+      : shown.map(i => `
+        <div class="item s-${i.status}">
+          <img loading="lazy" src="https://assets.ppy.sh/beatmaps/${i.id}/covers/list.jpg" alt="" onerror="this.style.visibility='hidden'">
+          <div class="meta">
+            <div class="t">${esc(i.title || 'Beatmap set #' + i.id)}</div>
+            <div class="a">${i.artist ? esc(i.artist) + ' · ' : ''}<a href="https://osu.ppy.sh/beatmapsets/${i.id}" target="_blank" rel="noopener">#${i.id}</a>${i.note && i.status === 'have' ? ' · ' + esc(i.note) : ''}</div>
+            ${i.status === 'failed' && i.error ? `<div class="err">${esc(i.error)}</div>` : ''}
+          </div>
+          ${!S.running && ['queued', 'have', 'skipped'].includes(i.status)
+            ? `<button class="btn sm ghost" onclick="act('toggle', {id: '${i.id}'})">${i.status === 'queued' ? 'Skip' : 'Download anyway'}</button>` : ''}
+          <span class="pill">${STATUS[i.status] || i.status}</span>
+        </div>`).join('')
+        + (rows.length > shown.length ? `<div class="empty">…and ${rows.length - shown.length} more</div>` : '');
+  }
+
+  // finished banner
+  const showDone = !S.running && (c.done || c.failed) && !c.queued;
+  $('doneBanner').classList.toggle('show', !!showDone);
+  if (showDone) {
+    $('doneTitle').textContent = `Downloaded ${c.done || 0} map${c.done === 1 ? '' : 's'}` + (c.failed ? `, ${c.failed} failed` : '');
+    $('doneSub').textContent = S.opts.auto_open ? 'They were sent to osu! as they finished.' : 'Send them to osu! to import — it can take a moment for big batches.';
+    $('exportFailed').classList.toggle('hidden', !c.failed);
+  }
+  if (wasRunning && !S.running) {
+    toast('Downloads finished');
+    if (document.hidden && 'Notification' in window && Notification.permission === 'granted')
+      new Notification('osu! Beatmap Downloader', {body: $('doneTitle').textContent});
+  }
+  wasRunning = S.running;
+}
+
+function appendLogs(logs) {
+  const box = $('log');
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 10;
+  for (const l of logs) {
+    const d = document.createElement('div');
+    d.innerHTML = `<span class="t">${l.t}</span><span class="${l.level}">${esc(l.msg)}</span>`;
+    box.appendChild(d);
+    logSince = l.i + 1;
+    if (l.level === 'error') { toast(l.msg, true); $('logBox').open = true; }
+  }
+  while (box.childNodes.length > 1000) box.firstChild.remove();
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+
+let polling = false;
+async function poll() {
+  if (polling) return; polling = true;
+  try {
+    const r = await fetch('/api/state?since=' + logSince);
+    S = await r.json();
+    appendLogs(S.logs);
+    render();
+  } catch {
+    $('now').innerHTML = '<span class="warn">Lost connection to the app — is its window still open?</span>';
+  } finally { polling = false; }
+}
+setInterval(poll, 800);
+poll();
+
+$('startBtn').addEventListener('click', () => {
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+});
+</script>
+</body>
+</html>
