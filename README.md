@@ -26,15 +26,13 @@ with a simple app that runs on your own PC.
 
 Back in 2020, a hard drive failure wiped out my entire osu! beatmap collection. Luckily, osu! keeps a record of
 every beatmap you've played at least once, ranked from most played to least played. I wrote a few scripts to pull
-my beatmap list from my profile, and used Selenium and ChromeDriver to download them. I was overjoyed that I
-successfully got my whole library back!
+the beatmap list from my profile, and used Selenium and ChromeDriver to download them. I was overjoyed that I got my whole library back!
 
-For years those scripts stayed on my PC. I never got around to building a proper interface or releasing them.
-Now, with the help of Claude, I quickly made a simple HTML interface for it so that others can enjoy it too,
+For years those scripts stayed on my PC. I never got around to building a proper interface or releasing them until now.
+Now, with the help of Claude, I quickly made a simple HTML interface so that others can enjoy it too,
 without needing any coding knowledge.
 
-It's the best way I know to recover a lost beatmap collection for now. It's also a great way to download anyone else's
-maps, like your favourite pro player's most played list.
+This tool is also a great way to download anyone else's maps, like your favourite pro player's most played list.
 
 ## Features
 
