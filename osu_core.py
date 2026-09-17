@@ -246,7 +246,7 @@ class Downloader:
         limit = self.hourly_limit
         if not self.limit_learned and self.batch_done > limit:
             limit = None  # past the default without being refused: probably a supporter
-        per_map = self.per_map or float(self.opts.get("delay", 3)) + 3
+        per_map = self.per_map or float(self.opts.get("delay", 5)) + 3
         now = time.time()
         t, left = now, remaining
         if self.quota_hit_at:
@@ -312,7 +312,7 @@ class Downloader:
             self.log("info", "Stopped." if self.stop_flag.is_set() else "All done.")
 
     def _loop(self, driver):
-        delay = float(self.opts.get("delay", 3))
+        delay = float(self.opts.get("delay", 5))
         batch, rest = int(self.opts.get("batch", 60)), float(self.opts.get("rest", 15))
         cooldown = float(self.opts.get("cooldown", 300))
         timeout = float(self.opts.get("timeout", 90))

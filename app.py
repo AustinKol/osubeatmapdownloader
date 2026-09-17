@@ -57,7 +57,7 @@ INDEX = ROOT / "web" / "index.html"
 PREFERRED_PORT = 8765
 
 DEFAULT_OPTS = {"no_video": False, "auto_open": False, "import_client": "stable", "show_browser": False,
-                "delay": 3, "batch": 60, "rest": 15, "cooldown": 300, "timeout": 90}
+                "delay": 5, "batch": 60, "rest": 15, "cooldown": 300, "timeout": 90}
 
 
 def _load(path, default):
