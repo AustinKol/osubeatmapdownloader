@@ -193,7 +193,7 @@ def in_background(label, fn):
         try:
             fn()
         except Exception as e:
-            S.log("error", str(e) or type(e).__name__)
+            S.log("error", core.friendly_error(e))
         finally:
             if S.busy_token is token:  # the task may have updated the label with its progress
                 S.busy, S.busy_token = "", None
@@ -524,6 +524,7 @@ def free_port(preferred):
 
 
 PORT = PREFERRED_PORT
+JOB = None  # Windows job handle that closes our Chrome processes when the app exits
 
 
 def main():
@@ -546,7 +547,12 @@ def main():
         print("Already running, so it was opened in your browser.")
         return
 
-    # we're the only copy running, so anything left in temp is from an earlier session
+    global JOB
+    JOB = core.close_chrome_with_app()
+    # we're the only copy running, so anything using our profile or temp is from an earlier session
+    stopped = core.close_leftover_chrome(PROFILE_DIR)
+    if stopped:
+        S.log("info", f"Closed {stopped} leftover Chrome process(es) from an earlier session.")
     for leftover in TEMP_DIR.iterdir():
         try:
             shutil.rmtree(leftover) if leftover.is_dir() else leftover.unlink()

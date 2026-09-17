@@ -413,7 +413,7 @@ class Downloader:
             self.log("ok", f"Signed in as {user['username']}.")
             self._loop(driver)
         except Exception as e:  # surface anything unexpected to the UI instead of dying silently
-            self.log("error", f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}")
+            self.log("error", friendly_error(e))
         finally:
             if driver:
                 # give in-flight downloads a moment to land before closing Chrome
@@ -562,6 +562,85 @@ class Downloader:
         return None, "Timed out waiting for the download."
 
 
+# ---------------------------------------------------------------- process housekeeping
+
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+
+
+def close_chrome_with_app():
+    """Put this process in a Windows job so every Chrome it starts dies with it.
+
+    Without this, closing the console window leaves headless Chrome running, and that
+    Chrome keeps the profile locked so the next launch can't start a browser.
+    Programs that should outlive the app (osu!) are started with CREATE_BREAKAWAY_FROM_JOB.
+    """
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+
+    class Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class Extended(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_uint64 * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    job = k32.CreateJobObjectW(None, None)
+    info = Extended()
+    info.BasicLimitInformation.LimitFlags = 0x2000 | 0x800  # KILL_ON_JOB_CLOSE | BREAKAWAY_OK
+    if not (job and k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+            and k32.AssignProcessToJobObject(job, k32.GetCurrentProcess())):
+        return None
+    return job  # the caller must keep this handle alive for the life of the app
+
+
+def close_leftover_chrome(profile_dir):
+    """Stop any Chrome still using our profile (e.g. from a copy of the app that crashed)."""
+    lock = Path(profile_dir) / "lockfile"
+    if os.name != "nt" or not lock.exists():
+        return 0
+    try:
+        lock.unlink()  # succeeds only if no Chrome has the profile open
+        return 0
+    except OSError:
+        pass
+    import subprocess
+    needle = str(Path(profile_dir)).replace("'", "''")
+    script = ("$n = 0; Get-CimInstance Win32_Process -Filter \"Name='chrome.exe' OR Name='chromedriver.exe'\" | "
+              f"Where-Object {{ $_.CommandLine -and $_.CommandLine.Contains('{needle}') }} | "
+              "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $n++ }; $n")
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
+                         timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
+    time.sleep(1)
+    try:
+        return int(out.stdout.strip() or 0)
+    except ValueError:
+        return 0
+
+
+def friendly_error(e):
+    """A readable one-line message for an exception (Selenium's include whole stack traces)."""
+    text = str(e).strip()
+    if "session not created" in text and ("crashed" in text or "DevToolsActivePort" in text):
+        return ("Chrome couldn't start. Another copy of this app (or a leftover Chrome) may still be using "
+                "its Chrome profile. Close other copies and try again.")
+    if "session not created" in text and "version" in text.lower():
+        return "Chrome couldn't start: ChromeDriver doesn't match your Chrome. Update Chrome and try again."
+    first = text.removeprefix("Message: ").splitlines()[0] if text else type(e).__name__
+    return first
+
+
 # ---------------------------------------------------------------- osu! clients
 
 def _child_env():
@@ -638,7 +717,8 @@ def import_into_osu(path, client, songs_dir="", custom_paths=None):
         exe = find_osu(c, songs_dir, (custom_paths or {}).get(c, ""))
         if exe:
             import subprocess
-            subprocess.Popen([exe, str(path)], env=_child_env(), cwd=str(Path(exe).parent))
+            flags = CREATE_BREAKAWAY_FROM_JOB if os.name == "nt" else 0  # osu! keeps running after the app
+            subprocess.Popen([exe, str(path)], env=_child_env(), cwd=str(Path(exe).parent), creationflags=flags)
             return c
     open_file(path)
     return "default"
@@ -650,6 +730,6 @@ def open_file(path):
     if os.name == "nt":
         # explorer hands the file to its default app from the desktop shell, so that app
         # doesn't inherit our redirected TEMP the way os.startfile's children would
-        subprocess.Popen(["explorer", str(Path(path))])
+        subprocess.Popen(["explorer", str(Path(path))], creationflags=CREATE_BREAKAWAY_FROM_JOB)
     else:
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
