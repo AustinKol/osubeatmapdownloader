@@ -300,7 +300,7 @@ def _duration(seconds):
 
 
 # osu! allows a fixed number of downloads per rolling hour (200 for regular accounts,
-# more for osu!supporters). When it refuses, retry on this cycle — it adds up to an hour,
+# more for osu!supporters). When it refuses, retry on this cycle. It adds up to an hour,
 # so the 4th retry lands after the window has rolled over. Then start again at 5 min.
 QUOTA_RETRY_WAITS = (5 * 60, 10 * 60, 20 * 60, 25 * 60)
 DEFAULT_HOURLY_LIMIT = 200
@@ -494,7 +494,7 @@ class Downloader:
                 self._set(item, "failed", error=reason)
                 self.log("warn", f"{item['id']}: {reason}")
                 if fails_in_row >= 3:
-                    self.log("warn", f"Several failures in a row — osu! may be rate limiting. "
+                    self.log("warn", f"Several failures in a row, so osu! may be rate limiting. "
                                      f"Cooling down for {_duration(cooldown)}.")
                     if not self._sleep(cooldown):
                         return
@@ -508,7 +508,7 @@ class Downloader:
         if used != wanted and not self.warned_client:
             self.warned_client = True
             other = f"osu!{used}" if used != "default" else "the default app"
-            self.log("warn", f"osu!{wanted} isn't installed — importing with {other} instead.")
+            self.log("warn", f"osu!{wanted} isn't installed, so importing with {other} instead.")
 
     def _download_one(self, driver, item, timeout):
         sid = item["id"]
@@ -645,7 +645,7 @@ def import_into_osu(path, client, songs_dir="", custom_paths=None):
 
 
 def open_file(path):
-    """Hand a file/folder to the OS — .osz files open in whichever osu! owns the file type."""
+    """Hand a file or folder to the OS (.osz files open in whichever osu! owns the file type)."""
     import subprocess, sys
     if os.name == "nt":
         # explorer hands the file to its default app from the desktop shell, so that app

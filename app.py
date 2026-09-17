@@ -1,4 +1,4 @@
-"""osu! Beatmap Downloader — local web UI.
+"""osu! Beatmap Downloader: local web UI.
 
 Run `python app.py` (or start.bat, or the built exe) and a browser tab opens. Everything stays on
 this machine: the server only listens on 127.0.0.1.
@@ -38,7 +38,7 @@ def _writable(path):
 
 DATA = APP_DIR / "data"
 if not _writable(DATA):
-    # e.g. unzipped into Program Files — fall back to the user's AppData
+    # e.g. unzipped into Program Files, so fall back to the user's AppData
     APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "osu! Beatmap Downloader"
     DATA = APP_DIR / "data"
     DATA.mkdir(parents=True, exist_ok=True)
@@ -123,7 +123,7 @@ class State:
                 self.save_history()
 
     def clients(self):
-        """Which osu! installs exist (cached briefly — this runs on every UI poll)."""
+        """Which osu! installs exist (cached briefly, since this runs on every UI poll)."""
         now = time.time()
         if now - getattr(self, "_clients_at", 0) > 10:
             self._clients = {c: core.find_osu(c, self.songs_dir, self.osu_paths[c])
@@ -208,7 +208,7 @@ def act_login(_):
 
     def run():
         try:
-            S.log("info", "Opened a Chrome window — sign in to osu! there.")
+            S.log("info", "Opened a Chrome window. Sign in to osu! there.")
             user = core.sign_in(PROFILE_DIR, cancel, done)
             S.user = user
             S.save_config()
@@ -270,7 +270,7 @@ def act_fetch(body):
                                      on_progress=lambda n: setattr(S, "busy", f"Fetching… {n} maps"))
         S.set_queue(items)
         have = sum(1 for i in items if i["status"] == "have")
-        S.log("ok", f"Found {len(items)} beatmap sets" + (f" — {have} you already have." if have else "."))
+        S.log("ok", f"Found {len(items)} beatmap sets" + (f", {have} of which you already have." if have else "."))
     in_background("Fetching…", run)
 
 
@@ -294,7 +294,7 @@ def act_settings(body):
             if client not in S.osu_paths:
                 continue
             if folder and not core.osu_in_folder(client, folder):
-                raise ValueError(f"Couldn't find osu!{client} in that folder — pick the folder that contains osu!.exe.")
+                raise ValueError(f"Couldn't find osu!{client} in that folder. Pick the folder that contains osu!.exe.")
             S.osu_paths[client] = folder
             S._clients_at = 0  # re-detect
         if "opts" in body:
@@ -318,7 +318,7 @@ def act_start(_):
     if not S.user:
         raise ValueError("Sign in first.")
     if not any(i["status"] == "queued" for i in S.queue):
-        raise ValueError("Nothing to download — the queue is empty or you already have everything.")
+        raise ValueError("Nothing to download: the queue is empty or you already have everything.")
     opts = {**S.opts, "songs_dir": S.songs_dir, "osu_paths": dict(S.osu_paths)}
     S.job = core.Downloader(S.queue, PROFILE_DIR, S.folder, opts, S.on_item, S.log)
     S.job.start()
@@ -331,7 +331,7 @@ def act_pause(_):
             S.log("info", "Resumed.")
         else:
             S.job.pause_flag.set()
-            S.log("info", "Paused — the current map will finish first.")
+            S.log("info", "Paused. The current map will finish first.")
 
 
 def act_stop(_):
@@ -397,7 +397,7 @@ def act_open_all(_):
         if used != client:
             S.log("warn", f"osu!{client} isn't installed, so the maps went to "
                           f"{'osu!' + used if used != 'default' else 'the default app'} instead.")
-        S.log("ok", "Handed everything to osu! — it'll finish importing on its own.")
+        S.log("ok", "Handed everything to osu!, which will finish importing on its own.")
     in_background("Importing…", run)
 
 
@@ -543,7 +543,7 @@ def main():
         # double-clicking the exe again just brings the existing app back up
         if open_browser:
             webbrowser.open(f"http://127.0.0.1:{preferred}/")
-        print("Already running — opened it in your browser.")
+        print("Already running, so it was opened in your browser.")
         return
 
     # we're the only copy running, so anything left in temp is from an earlier session

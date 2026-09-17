@@ -6,7 +6,7 @@
 
 **Bulk-download osu! beatmaps in the background, then import them into osu! in one click.**
 
-Your most played maps, a friend's favourites, or any list of IDs — hundreds at a time,
+Your most played maps, a friend's favourites, or any list of IDs, hundreds at a time,
 with a simple app that runs on your own PC.
 
 [![Download](https://img.shields.io/github/v/release/AustinKol/osubeatmapdownloader?label=download&style=for-the-badge&color=ff66aa)](https://github.com/AustinKol/osubeatmapdownloader/releases/latest)
@@ -36,10 +36,10 @@ So far, this is still the best way that I know of to recover lost beatmaps folde
 
 ## Features
 
-- **Grab whole lists at once.** A player's *most played*, *favourites*, *ranked*, *loved*, *guest* or *graveyard* maps — or paste IDs/links, or open a `.txt` a friend sent you.
+- **Grab whole lists at once.** A player's *most played*, *favourites*, *ranked*, *loved*, *guest* or *graveyard* maps. You can also paste IDs/links or open a `.txt` a friend sent you.
 - **Runs invisibly.** Chrome works in the background (headless). No windows popping up, no need to close your browser first.
 - **Skips what you already have.** Maps in your osu!stable `Songs` folder, in the download folder, or downloaded in an earlier session.
-- **One-click import** into **osu!stable** or **osu!lazer** — or automatically as each map finishes.
+- **One-click import** into **osu!stable** or **osu!lazer**, or automatically as each map finishes.
 - **Handles osu!'s hourly limit for you.** When osu! stops accepting downloads, the app waits and retries on its own, and the time estimate includes those waits. Pause, resume, stop and retry failed maps any time.
 - **Portable.** Unzip and run. Settings, downloads and everything else stay inside the app's folder.
 - **Share your library.** Export your Songs folder as an ID list your friends can load.
@@ -52,14 +52,14 @@ So far, this is still the best way that I know of to recover lost beatmaps folde
 
 > [!NOTE]
 > The app isn't code-signed, so Windows SmartScreen may say it *protected your PC*.
-> Click **More info → Run anyway**. The full source is right here if you'd like to check it — or [run it from source](#run-from-source).
+> Click **More info → Run anyway**. The full source is right here if you'd like to check it, or you can [run it from source](#run-from-source).
 
-A black window opens (that's the app — keep it open while downloading, close it to quit) and your browser shows the interface.
+A black window opens (that's the app: keep it open while downloading and close it to quit) and your browser shows the interface.
 
 > [!IMPORTANT]
 > **osu! allows about 200 beatmap downloads per hour** (osu!supporters get more). This is a limit on osu!'s side
 > and there's no way around it. When you reach it, the app waits and retries automatically after **5, 10, 20 and
-> 25 minutes** (an hour in total), then carries on — repeating that cycle if it's still blocked. Big batches
+> 25 minutes** (an hour in total), then carries on, repeating that cycle if it's still blocked. Big batches
 > therefore take roughly **an hour per 200 maps**: 1,000 maps is about 5 hours. Just leave it running; nothing is
 > skipped, and the time-left estimate already includes the waits.
 
@@ -82,11 +82,11 @@ The app doesn't control that window or read what you type.
 
 ### 2. Choose beatmaps
 
-Type a player name (or leave it empty for yourself), pick a list and how many maps you want — or switch to **From a list** and paste IDs or links.
+Type a player name (or leave it empty for yourself), pick a list and how many maps you want. Or switch to **From a list** and paste IDs or links.
 
 Open **Folders & options** to choose where maps are saved, point the app at your osu!stable `Songs` folder so it skips maps you own, and pick which osu! to import into:
 
-<img src="docs/images/options.png" width="660" alt="Options: download folder, Songs folder, import into osu!stable (recommended) or osu!lazer, with an explanatory tooltip">
+<img src="docs/images/options.png" width="660" alt="Options: download folder, Songs folder, import into osu!stable (recommended) or osu!lazer">
 
 <details>
 <summary><b>osu!stable or osu!lazer?</b></summary>
@@ -94,7 +94,7 @@ Open **Folders & options** to choose where maps are saved, point the app at your
 <br>
 
 **osu!stable is recommended.** osu!lazer stores beatmaps as files named by their SHA-256 hash, so there's no
-normal `Songs` folder you can browse, back up or share. Importing into stable keeps regular song folders — and
+normal `Songs` folder you can browse, back up or share. Importing into stable keeps regular song folders, and
 lazer can still use them: in lazer, go to **Settings → Maintenance** and import from your stable install.
 
 The app finds both automatically (wherever they're installed). If it can't, click **Locate…** and pick the folder
@@ -103,7 +103,7 @@ that contains `osu!.exe`. If the one you chose isn't installed, it falls back to
 
 ### 3. Download
 
-Hit **Download**. You can minimise the tab — the list, progress bar and time estimate keep updating. If osu!'s hourly
+Hit **Download**. You can minimise the tab while the list, progress bar and time estimate keep updating. If osu!'s hourly
 limit kicks in, the status line shows when the next retry happens.
 
 <img src="docs/images/queue.png" width="660" alt="Download step with a queue of 40 maps ready to download">
@@ -117,11 +117,11 @@ When it's done, click **Import all into osu!** (or tick *Import as they finish* 
 | Problem | Fix |
 |---|---|
 | **"No download button"** for some maps | Turn on **Show explicit content** in your [osu! account settings](https://osu.ppy.sh/home/account/edit). Otherwise the map may have been removed. |
-| **"osu!'s hourly download limit reached"** | Expected after about 200 maps in an hour. The app retries the same map after 5, 10, 20 and 25 minutes and continues once osu! allows it — just leave it running. Skipping to other maps doesn't help: the limit is per account, not per map. |
+| **"osu!'s hourly download limit reached"** | Expected after about 200 maps in an hour. The app retries the same map after 5, 10, 20 and 25 minutes and continues once osu! allows it, so just leave it running. Skipping to other maps doesn't help: the limit is per account, not per map. |
 | **"You're signed out of osu!"** | Your saved sign-in expired (after about a month) or you signed out. Click **Sign in with osu!** again. |
 | **The sign-in window doesn't appear** | Check your taskbar for a new Chrome window. Google Chrome must be installed. |
 | **Chrome won't start** | Make sure Google Chrome is installed and up to date. The first run needs internet to fetch a matching ChromeDriver. |
-| **Can't save settings** | The app's folder must be writable — don't put it in *Program Files*. (It will fall back to `%LOCALAPPDATA%\osu! Beatmap Downloader`.) |
+| **Can't save settings** | The app's folder must be writable, so don't put it in *Program Files*. (It will fall back to `%LOCALAPPDATA%\osu! Beatmap Downloader`.) |
 | **Want to see what the browser is doing** | *Folders & options* → **Show the browser**. The *Activity log* at the bottom also shows every step. |
 
 ## How it works
@@ -170,7 +170,7 @@ git clone https://github.com/AustinKol/osubeatmapdownloader.git
 cd osubeatmapdownloader
 ```
 
-On Windows, double-click **`start.bat`** — it creates a virtual environment, installs dependencies and opens the app.
+On Windows, double-click **`start.bat`**. It creates a virtual environment, installs dependencies and opens the app.
 Elsewhere:
 
 ```bash
@@ -185,8 +185,8 @@ Options: `--port 1234` to use another port, `--no-browser` to not open a tab.
 
 Double-click **`build.bat`**. It produces:
 
-- `dist\osu! Beatmap Downloader\` — the portable app folder
-- `dist\osu-beatmap-downloader-win64.zip` — that folder zipped, ready to attach to a GitHub release
+- `dist\osu! Beatmap Downloader\`: the portable app folder
+- `dist\osu-beatmap-downloader-win64.zip`: that folder zipped, ready to attach to a GitHub release
 
 ### Project layout
 
@@ -194,7 +194,7 @@ Double-click **`build.bat`**. It produces:
 |---|---|
 | [`app.py`](app.py) | Local web server and the actions behind every button |
 | [`osu_core.py`](osu_core.py) | osu! profile lists, headless Chrome downloader, osu!stable/lazer detection |
-| [`web/index.html`](web/index.html) | The whole interface — plain HTML, CSS and JavaScript |
+| [`web/index.html`](web/index.html) | The whole interface, in plain HTML, CSS and JavaScript |
 | [`build.bat`](build.bat) · [`tools/`](tools) · [`assets/`](assets) | Release packaging (PyInstaller) and the app icon |
 | [`start.bat`](start.bat) | Run-from-source launcher for Windows |
 
@@ -206,7 +206,7 @@ lookup lives in `CLICK_DOWNLOAD_JS` in [`osu_core.py`](osu_core.py).
 ## Disclaimer
 
 Not affiliated with or endorsed by ppy Pty Ltd. "osu!" is a trademark of ppy Pty Ltd. Please be considerate of
-osu!'s servers — keep the default delays and don't download more than you'll play.
+osu!'s servers: keep the default delays and don't download more than you'll play.
 
 ## License
 
