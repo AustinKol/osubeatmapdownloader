@@ -85,6 +85,7 @@ summary:hover { color: var(--text); }
 .help b { color: var(--text); }
 kbd { background: var(--panel); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; font-size: 12px; }
 .warn { color: var(--yellow); }
+.hint { color: var(--dim); font-size: 13px; }
 
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 12px; }
 .check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: 14px; }
@@ -186,41 +187,41 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
   <div id="userChip" class="chip-user hidden">
     <img id="userAvatar" alt="">
     <span id="userName"></span>
-    <button class="btn sm ghost" onclick="api('logout').then(poll)">Sign out</button>
+    <button class="btn sm ghost" onclick="if (confirm('Sign out of osu! in this app?')) act('logout')">Sign out</button>
   </div>
 </header>
 
 <!-- STEP 1 -->
 <section class="card" id="step1">
-  <h2><span class="n" id="n1">1</span> Connect your osu! account</h2>
+  <h2><span class="n" id="n1">1</span> Sign in to osu!</h2>
   <div id="loginForm">
-    <p class="sub">osu! only lets signed-in players download maps. Paste your session cookie so the downloader can act as you.</p>
-    <div class="row">
-      <div class="grow">
-        <label class="f" for="cookie">osu_session cookie</label>
-        <input id="cookie" type="password" placeholder="eyJpdiI6…" autocomplete="off" spellcheck="false">
-      </div>
-      <button class="btn primary" id="loginBtn" onclick="login()">Connect</button>
+    <p class="sub">osu! only lets signed-in players download maps. Sign in once and the app remembers it on this computer.</p>
+    <div class="row" style="align-items:center">
+      <button class="btn primary big" id="loginBtn" onclick="act('login')">Sign in with osu!</button>
+      <span class="hint">Opens a Chrome window with osu!'s own sign-in page.</span>
     </div>
-    <label class="check" style="margin-top:10px">
-      <input type="checkbox" id="remember" checked>
-      <span>Remember me on this computer <small>Saved only in this app's data folder.</small></span>
-    </label>
     <details>
-      <summary>Where do I find my cookie?</summary>
+      <summary>Is this safe?</summary>
       <div class="help">
-        <ol>
-          <li>Sign in at <a href="https://osu.ppy.sh" target="_blank" rel="noopener">osu.ppy.sh</a> in your normal browser.</li>
-          <li>Press <kbd>F12</kbd> to open developer tools.</li>
-          <li><b>Chrome / Edge:</b> Application tab → Cookies → <code>https://osu.ppy.sh</code>.<br>
-              <b>Firefox:</b> Storage tab → Cookies → <code>https://osu.ppy.sh</code>.</li>
-          <li>Find the row named <b>osu_session</b> and copy its <b>Value</b>.</li>
-        </ol>
-        <span class="warn">⚠ Treat this like a password — anyone with it can use your account. Signing out of osu! in your browser invalidates it.</span>
+        You sign in on <b>osu.ppy.sh</b> in a normal Chrome window, including any captcha or email code osu! asks for.
+        The app doesn't control that window or read what you type. When you're done it closes the window and checks
+        with osu! that you're signed in.
+        <br><br>
+        Your sign-in is kept in this app's <code>data</code> folder (it lasts about a month), so don't share that folder.
+        <b>Sign out</b> removes it. The app is <a href="https://github.com/AustinKol/osubeatmapdownloader" target="_blank" rel="noopener">open source</a>.
       </div>
     </details>
   </div>
-  <p class="sub hidden" id="loginDone" style="margin:0">You're connected. The downloader signs in with your session — no need to close Chrome.</p>
+  <div id="loginWaiting" class="hidden">
+    <p class="sub"><b>Sign in to osu! in the Chrome window that just opened</b> (including the captcha and any
+      email code). When you're signed in, click the button below — or just close that window.</p>
+    <div class="row" style="align-items:center">
+      <button class="btn primary big" id="finishLoginBtn" onclick="act('finish-login')">I've signed in</button>
+      <button class="btn" onclick="act('cancel-login')">Cancel</button>
+      <span class="hint">Can't see it? Check your taskbar for a new Chrome window.</span>
+    </div>
+  </div>
+  <p class="sub hidden" id="loginDone" style="margin:0">You're signed in. Downloads run in a hidden Chrome window using this sign-in.</p>
 </section>
 
 <!-- STEP 2 -->
@@ -414,10 +415,6 @@ function tab(name) {
   $('tab-list').classList.toggle('hidden', name !== 'list');
 }
 
-function login() {
-  act('login', {cookie: $('cookie').value, remember: $('remember').checked});
-  $('cookie').value = '';
-}
 
 function fetchMaps() {
   act('fetch', {user: $('userQuery').value, kind: $('kind').value, limit: +$('limit').value});
@@ -461,7 +458,6 @@ document.querySelectorAll('[data-opt]').forEach(el => el.addEventListener('chang
 document.querySelectorAll('input[name=client]').forEach(el => el.addEventListener('change', () => {
   act('settings', {opts: {import_client: el.value}});
 }));
-$('cookie').addEventListener('keydown', e => e.key === 'Enter' && login());
 $('userQuery').addEventListener('keydown', e => e.key === 'Enter' && fetchMaps());
 
 function setFilter(f) { filter = f; listSig = ''; render(); }
@@ -479,10 +475,11 @@ function render() {
   // step 1
   $('userChip').classList.toggle('hidden', !signedIn);
   if (signedIn) { $('userName').textContent = S.user.username; $('userAvatar').src = S.user.avatar || ''; }
-  $('loginForm').classList.toggle('hidden', signedIn);
-  $('loginDone').classList.toggle('hidden', !signedIn);
+  $('loginForm').classList.toggle('hidden', signedIn || S.signing_in);
+  $('loginWaiting').classList.toggle('hidden', !S.signing_in);
+  $('loginDone').classList.toggle('hidden', !signedIn || S.signing_in);
   $('n1').classList.toggle('ok', signedIn); $('n1').textContent = signedIn ? '✓' : '1';
-  $('loginBtn').disabled = !!S.busy;
+  $('loginBtn').disabled = !!S.busy || S.running;
 
   // step 2 — only fill inputs the user isn't editing
   const setVal = (el, v) => { if (document.activeElement !== el) el.value = v; };
@@ -521,7 +518,7 @@ function render() {
 
   $('startBtn').classList.toggle('hidden', S.running);
   $('startBtn').disabled = !signedIn || !c.queued;
-  $('startBtn').textContent = !signedIn ? 'Connect your account first'
+  $('startBtn').textContent = !signedIn ? 'Sign in first'
     : c.queued ? `Download ${c.queued} map${c.queued === 1 ? '' : 's'}` : 'Nothing to download';
   $('pauseBtn').classList.toggle('hidden', !S.running);
   $('pauseBtn').textContent = S.paused ? 'Resume' : 'Pause';

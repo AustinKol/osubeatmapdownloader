@@ -65,19 +65,20 @@ A black window opens (that's the app — keep it open while downloading, close i
 
 ## How to use it
 
-### 1. Connect your osu! account
+### 1. Sign in to osu!
 
-osu! only lets signed-in players download maps, so the app needs your **session cookie**. The app walks you through it:
+osu! only lets signed-in players download maps. Click **Sign in with osu!** and a Chrome window opens on osu!'s own
+sign-in page. Sign in there (including the captcha and any email code osu! asks for), then click **I've signed in**
+in the app, or just close that window. The app checks with osu! and shows your name. You stay signed in for
+about a month.
 
-<img src="docs/images/connect.png" width="660" alt="Connect step with the cookie field and instructions for finding the osu_session cookie">
+<img src="docs/images/connect.png" width="660" alt="Sign-in step with a 'Sign in with osu!' button and an explanation of how sign-in works">
 
-1. Sign in at [osu.ppy.sh](https://osu.ppy.sh) in your normal browser.
-2. Press <kbd>F12</kbd> → **Application** tab (Firefox: **Storage**) → **Cookies** → `https://osu.ppy.sh`.
-3. Copy the value of **`osu_session`** and paste it into the app.
+The app doesn't control that window or read what you type.
 
 > [!WARNING]
-> Treat the cookie like a password — anyone who has it can use your account. It's only stored on your PC
-> (`data\config.json`, and only if *Remember me* is ticked). Signing out of osu! in your browser invalidates it.
+> Your sign-in is saved in the app's `data\` folder, so treat that folder like a password: don't share or upload
+> it. **Sign out** (top right) deletes the saved sign-in.
 
 ### 2. Choose beatmaps
 
@@ -117,7 +118,8 @@ When it's done, click **Import all into osu!** (or tick *Import as they finish* 
 |---|---|
 | **"No download button"** for some maps | Turn on **Show explicit content** in your [osu! account settings](https://osu.ppy.sh/home/account/edit). Otherwise the map may have been removed. |
 | **"osu!'s hourly download limit reached"** | Expected after about 200 maps in an hour. The app retries the same map after 5, 10, 20 and 25 minutes and continues once osu! allows it — just leave it running. Skipping to other maps doesn't help: the limit is per account, not per map. |
-| **"osu! didn't accept that session cookie"** | The cookie expired or was copied incompletely. Grab a fresh one. |
+| **"You're signed out of osu!"** | Your saved sign-in expired (after about a month) or you signed out. Click **Sign in with osu!** again. |
+| **The sign-in window doesn't appear** | Check your taskbar for a new Chrome window. Google Chrome must be installed. |
 | **Chrome won't start** | Make sure Google Chrome is installed and up to date. The first run needs internet to fetch a matching ChromeDriver. |
 | **Can't save settings** | The app's folder must be writable — don't put it in *Program Files*. (It will fall back to `%LOCALAPPDATA%\osu! Beatmap Downloader`.) |
 | **Want to see what the browser is doing** | *Folders & options* → **Show the browser**. The *Activity log* at the bottom also shows every step. |
@@ -128,7 +130,7 @@ When it's done, click **Import all into osu!** (or tick *Import as they finish* 
 flowchart LR
     UI["Your browser<br/>(the app's UI)"] <-->|127.0.0.1 only| App["Local app<br/>(Python)"]
     App -->|profile lists| API["osu! website"]
-    App -->|drives| Chrome["Headless Chrome<br/>signed in with your cookie"]
+    App -->|drives| Chrome["Headless Chrome<br/>using your saved sign-in"]
     Chrome -->|clicks Download| API
     Chrome -->|.osz files| Folder["downloads folder"]
     Folder -->|Import| Osu["osu!stable / osu!lazer"]
@@ -139,7 +141,12 @@ opens each beatmap page and clicks **Download**. [Selenium](https://www.selenium
 fetches a ChromeDriver that matches your Chrome version automatically.
 
 Everything stays on your machine. The interface is served only on `127.0.0.1`, requests from other websites are
-rejected, and your cookie is only ever sent to osu!'s own servers (`*.ppy.sh`).
+rejected, and your osu! session is only ever sent to osu!'s own servers (`*.ppy.sh`).
+
+Sign-in happens in a plain Chrome window with its own profile inside `data\`. osu!'s login page uses a Cloudflare
+captcha that fails in automated browsers (even one with just a debugging port open), so nothing is attached to that
+window. When you're done, the app closes it normally and checks the profile with headless Chrome. Downloads reuse
+the same profile.
 
 ### Portable folder layout
 
@@ -148,7 +155,7 @@ osu! Beatmap Downloader\
 ├── osu! Beatmap Downloader.exe
 ├── README.txt
 ├── runtime\      the app itself (Python, Selenium, UI)
-├── data\         settings, saved session, download history, ChromeDriver, temp files
+├── data\         settings, saved sign-in (Chrome profile), download history, ChromeDriver
 └── downloads\    .osz files waiting to be imported
 ```
 

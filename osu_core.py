@@ -18,13 +18,6 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) osu-beatmap-downloader"
 
 # ---------------------------------------------------------------- helpers
 
-def parse_cookie(raw):
-    """Accept a bare cookie value, `osu_session=...`, or a whole Cookie header."""
-    raw = (raw or "").strip().strip('"').strip("'")
-    m = re.search(r"osu_session=([^;\s]+)", raw)
-    return m.group(1) if m else raw
-
-
 def parse_ids(text):
     """Pull beatmapset IDs out of pasted text: bare IDs, /beatmapsets/ links, /s/ links."""
     ids, seen = [], set()
@@ -125,10 +118,12 @@ def find_osz(folder, sid):
 
 # ---------------------------------------------------------------- browser
 
-def make_driver(download_dir=None, headless=True):
+def make_driver(download_dir=None, headless=True, profile_dir=None):
     from selenium import webdriver  # imported lazily so the UI starts instantly
 
     opts = webdriver.ChromeOptions()
+    if profile_dir:
+        opts.add_argument(f"--user-data-dir={profile_dir}")
     if headless:
         opts.add_argument("--headless=new")
     opts.add_argument("--window-size=1280,900")
@@ -154,28 +149,140 @@ def make_driver(download_dir=None, headless=True):
     return driver
 
 
-def login(driver, cookie):
-    """Inject the session cookie. Returns {id, username, avatar} or raises."""
+def current_user(driver):
+    """The osu! account this browser is signed in to, or None."""
     driver.get(f"{OSU}/home")
-    driver.delete_all_cookies()
-    driver.add_cookie({"name": "osu_session", "value": parse_cookie(cookie),
-                       "domain": ".ppy.sh", "path": "/", "secure": True, "httpOnly": True})
-    driver.get(f"{OSU}/home")
-    user = driver.execute_script(
+    return driver.execute_script(
         "const u = window.currentUser || {};"
         "return u.id ? {id: u.id, username: u.username, avatar: u.avatar_url} : null;")
-    if not user:
-        raise PermissionError("osu! didn't accept that session cookie. It may have expired — "
-                              "grab a fresh one and try again.")
-    return user
 
 
-def check_login(cookie):
-    driver = make_driver()
+# Chrome can only open a profile once at a time: the sign-in window, the sign-in check and
+# the downloader all take this lock while they use it.
+PROFILE_LOCK = threading.RLock()
+
+
+def _hold_profile():
+    if not PROFILE_LOCK.acquire(timeout=5):
+        raise RuntimeError("The sign-in window is still open. Finish signing in (or cancel) first.")
+
+
+def check_profile(profile_dir):
+    """Who the saved Chrome profile is signed in as (starts a hidden Chrome briefly)."""
+    if not Path(profile_dir).is_dir():
+        return None
+    _hold_profile()
     try:
-        return login(driver, cookie)
+        driver = make_driver(profile_dir=profile_dir)
+        try:
+            return current_user(driver)
+        finally:
+            driver.quit()
     finally:
-        driver.quit()
+        PROFILE_LOCK.release()
+
+
+# ---------------------------------------------------------------- sign-in window
+#
+# osu!'s login form is protected by Cloudflare Turnstile, which fails in any browser that is
+# automated or even just has a DevTools debugging port open. So the sign-in window is a plain
+# Chrome window on the app's own profile, with nothing attached. The user tells the app when
+# they're done (or closes the window); the app then closes Chrome normally, so the session is
+# saved to disk, and checks the profile with a hidden Chrome.
+
+LOGIN_URL = f"{OSU}/home/account/edit"  # logged-out visitors get the sign-in form here
+
+
+class SignInCancelled(Exception):
+    pass
+
+
+def find_chrome():
+    """Path to chrome.exe (or the platform equivalent), or None."""
+    if os.name == "nt":
+        import winreg
+        for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(root, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe") as k:
+                    path = winreg.QueryValue(k, None)
+                if path and Path(path).is_file():
+                    return path
+            except OSError:
+                pass
+        for base in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            if os.environ.get(base):
+                path = Path(os.environ[base]) / "Google" / "Chrome" / "Application" / "chrome.exe"
+                if path.is_file():
+                    return str(path)
+        return None
+    import shutil
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        if shutil.which(name):
+            return shutil.which(name)
+    mac = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    return mac if Path(mac).exists() else None
+
+
+def _close_gracefully(proc):
+    """Close Chrome the way clicking X does, so it writes its cookies to disk."""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def close_window(hwnd, _):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value == proc.pid and user32.IsWindowVisible(hwnd):
+                user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+            return True
+        user32.EnumWindows(close_window, 0)
+    else:
+        proc.terminate()  # Chrome treats SIGTERM as a normal quit
+    try:
+        proc.wait(20)
+    except Exception:
+        proc.kill()
+
+
+def sign_in(profile_dir, cancel, done):
+    """Open a Chrome window for the user to sign in to osu!, then return who signed in.
+
+    `done` is set when the user says they've finished; closing the window counts too.
+    Raises SignInCancelled if cancelled or if the profile still isn't signed in.
+    """
+    _hold_profile()
+    try:
+        return _sign_in(profile_dir, cancel, done)
+    finally:
+        PROFILE_LOCK.release()
+
+
+def _sign_in(profile_dir, cancel, done):
+    import subprocess
+    chrome = find_chrome()
+    if not chrome:
+        raise RuntimeError("Google Chrome isn't installed. Install it from google.com/chrome and try again.")
+    profile = Path(profile_dir)
+    profile.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen([
+        chrome, f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
+        "--disable-sync", "--window-size=620,860", "--new-window", LOGIN_URL,
+    ], env=_child_env())
+
+    while proc.poll() is None and not (cancel.is_set() or done.is_set()):
+        time.sleep(0.5)
+    if proc.poll() is None:
+        _close_gracefully(proc)
+    time.sleep(1)  # let Chrome's helper processes let go of the profile
+
+    if cancel.is_set():
+        raise SignInCancelled("Sign-in cancelled.")
+    user = check_profile(profile)
+    if not user:
+        raise SignInCancelled("You're not signed in yet. Click “Sign in with osu!” to try again.")
+    return user
 
 
 CLICK_DOWNLOAD_JS = """
@@ -213,9 +320,9 @@ def _resume_time(refused_at, batch_start):
 class Downloader:
     """Runs a download queue on a background thread and reports through callbacks."""
 
-    def __init__(self, items, cookie, folder, opts, emit, log):
+    def __init__(self, items, profile_dir, folder, opts, emit, log):
         self.items = items          # list of dicts; this class mutates item["status"]
-        self.cookie = cookie
+        self.profile_dir = profile_dir
         self.folder = Path(folder)
         self.opts = opts
         self.emit = emit            # emit(item) after any status change
@@ -223,6 +330,7 @@ class Downloader:
         self.stop_flag = threading.Event()
         self.pause_flag = threading.Event()
         self.warned_client = False
+        self.signed_out = False
         # progress/ETA bookkeeping, read by the UI
         self.batch_done = 0             # downloads since the last time osu! let us resume
         self.batch_started_at = None    # time of the batch's first download
@@ -291,10 +399,17 @@ class Downloader:
     def _run(self):
         self.folder.mkdir(parents=True, exist_ok=True)
         driver = None
+        locked = False
         try:
+            _hold_profile()
+            locked = True
             self.log("info", "Starting Chrome in the background…")
-            driver = make_driver(self.folder, headless=not self.opts.get("show_browser"))
-            user = login(driver, self.cookie)
+            driver = make_driver(self.folder, headless=not self.opts.get("show_browser"),
+                                 profile_dir=self.profile_dir)
+            user = current_user(driver)
+            if not user:
+                self.signed_out = True
+                raise PermissionError("You're signed out of osu! Click “Sign in with osu!” and try again.")
             self.log("ok", f"Signed in as {user['username']}.")
             self._loop(driver)
         except Exception as e:  # surface anything unexpected to the UI instead of dying silently
@@ -306,6 +421,8 @@ class Downloader:
                 while time.time() < deadline and any(self.folder.glob("*.crdownload")):
                     time.sleep(0.5)
                 driver.quit()
+            if locked:
+                PROFILE_LOCK.release()
             for item in self.items:
                 if item["status"] in ("queued", "downloading"):
                     self._set(item, "cancelled" if self.stop_flag.is_set() else "failed")

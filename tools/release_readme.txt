@@ -15,12 +15,12 @@ per 200 maps - just leave it running.
 Everything the app creates stays in this folder:
 
   downloads\   beatmaps (.osz) waiting to be imported into osu!
-  data\        your settings, saved osu! session and download history
+  data\        your settings, saved osu! sign-in and download history
   runtime\     the app's own files - don't touch
 
 To move the app, move the whole folder. To uninstall, delete the folder.
-Keep the folder private: data\config.json contains your osu! session if
-"Remember me" is ticked.
+Keep the folder private: data\ contains your saved osu! sign-in.
+Use "Sign out" in the app to remove it.
 
 Don't unzip into Program Files - the app needs to be able to write to its own
 folder (if it can't, it falls back to %LOCALAPPDATA%\osu! Beatmap Downloader).

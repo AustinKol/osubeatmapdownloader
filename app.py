@@ -51,6 +51,7 @@ os.environ["SE_CACHE_PATH"] = str(DATA / "selenium")
 for _key in ("TEMP", "TMP"):  # remembered so osu! can be launched with the real TEMP
     os.environ.setdefault(f"OBD_ORIGINAL_{_key}", os.environ.get(_key, ""))
     os.environ[_key] = str(TEMP_DIR)
+PROFILE_DIR = DATA / "chrome-profile"  # the signed-in osu! session lives here
 CONFIG_FILE = DATA / "config.json"
 HISTORY_FILE = DATA / "history.json"
 INDEX = ROOT / "web" / "index.html"
@@ -78,27 +79,24 @@ class State:
     def __init__(self):
         self.lock = threading.RLock()
         cfg = _load(CONFIG_FILE, {})
-        self.cookie = cfg.get("cookie", "")
-        self.remember = bool(cfg.get("remember", True))
         self.folder = cfg.get("folder") or str(DEFAULT_DOWNLOADS)
         self.songs_dir = cfg.get("songs_dir", "")
         self.osu_paths = {"stable": "", "lazer": "", **cfg.get("osu_paths", {})}  # user-picked installs
         self.opts = {**DEFAULT_OPTS, **cfg.get("opts", {})}
         self.last_user_query = cfg.get("last_user_query", "")
-        self.user = cfg.get("user") if self.cookie else None
+        self.user = cfg.get("user") if PROFILE_DIR.is_dir() else None  # confirmed on startup
         self.history = set(_load(HISTORY_FILE, []))
         self.owned = set()
         self.queue = []
         self.logs = []
         self.busy = ""
         self.job = None
+        self.signing_in = None  # (cancel, done) events while the sign-in window is open
 
     # -- persistence
     def save_config(self):
         _save(CONFIG_FILE, {
-            "cookie": self.cookie if self.remember else "",
-            "user": self.user if self.remember else None,
-            "remember": self.remember, "folder": self.folder, "songs_dir": self.songs_dir,
+            "user": self.user, "folder": self.folder, "songs_dir": self.songs_dir,
             "osu_paths": self.osu_paths, "opts": self.opts, "last_user_query": self.last_user_query,
         })
 
@@ -111,6 +109,11 @@ class State:
             self.logs.append({"i": len(self.logs), "t": time.strftime("%H:%M:%S"), "level": level, "msg": msg})
             del self.logs[:-2000]  # keep memory bounded
         print(f"[{level}] {msg}", flush=True)
+
+    def check_job(self):
+        if self.job and self.job.signed_out and self.user:
+            self.user = None
+            self.save_config()
 
     def on_item(self, item):
         if item["status"] == "done":
@@ -157,12 +160,13 @@ class State:
             self.queue = items
 
     def snapshot(self, log_since):
+        self.check_job()
         with self.lock:
             counts = {}
             for it in self.queue:
                 counts[it["status"]] = counts.get(it["status"], 0) + 1
             return {
-                "user": self.user, "has_cookie": bool(self.cookie), "remember": self.remember,
+                "user": self.user, "signing_in": bool(self.signing_in),
                 "folder": self.folder, "songs_dir": self.songs_dir, "opts": self.opts,
                 "last_user_query": self.last_user_query, "history_count": len(self.history),
                 "clients": self.clients(),
@@ -181,40 +185,70 @@ S = State()
 # ---------------------------------------------------------------- actions
 
 def in_background(label, fn):
+    S.busy = label  # set before the thread starts so a second click can't slip in
+
     def run():
-        S.busy = label
         try:
             fn()
         except Exception as e:
             S.log("error", str(e) or type(e).__name__)
         finally:
-            S.busy = ""
+            if S.busy == label:
+                S.busy = ""
     threading.Thread(target=run, daemon=True).start()
 
 
-def act_login(body):
-    cookie = core.parse_cookie(body.get("cookie", "")) or S.cookie
-    if not cookie:
-        raise ValueError("Paste your osu_session cookie first.")
-    if S.running():
-        raise ValueError("Stop the download before switching accounts.")
-    remember = bool(body.get("remember", True))
+def act_login(_):
+    if S.running() or S.busy:
+        raise ValueError("Wait for the current task to finish first.")
+    cancel, done = threading.Event(), threading.Event()
+    S.signing_in = (cancel, done)
 
     def run():
-        S.log("info", "Checking your session with osu!…")
-        user = core.check_login(cookie)
-        # only touch saved settings once the new cookie is known to work
-        S.cookie, S.user, S.remember = cookie, user, remember
-        S.save_config()
-        S.log("ok", f"Signed in as {user['username']}.")
-    in_background("Signing in…", run)
+        try:
+            S.log("info", "Opened a Chrome window — sign in to osu! there.")
+            user = core.sign_in(PROFILE_DIR, cancel, done)
+            S.user = user
+            S.save_config()
+            S.log("ok", f"Signed in as {user['username']}.")
+        except core.SignInCancelled as e:
+            S.log("info", str(e))
+        finally:
+            S.signing_in = None
+    in_background("Waiting for you to sign in…", run)
+
+
+def act_cancel_login(_):
+    if S.signing_in:
+        S.signing_in[0].set()
+
+
+def act_finish_login(_):
+    if S.signing_in:
+        S.signing_in[1].set()
 
 
 def act_logout(_):
-    if S.running():
-        raise ValueError("Stop the download before signing out.")
-    S.cookie, S.user = "", None
+    if S.running() or S.busy:
+        raise ValueError("Wait for the current task to finish first.")
+    shutil.rmtree(PROFILE_DIR, ignore_errors=True)
+    S.user = None
     S.save_config()
+    S.log("info", "Signed out. This app no longer has access to your osu! account.")
+
+
+def verify_sign_in():
+    """On startup, make sure the saved session still works (it lasts about a month)."""
+    if not PROFILE_DIR.is_dir() or S.busy:
+        return
+
+    def run():
+        user = core.check_profile(PROFILE_DIR)
+        if S.user and not user:
+            S.log("warn", "Your osu! sign-in has expired. Please sign in again.")
+        S.user = user
+        S.save_config()
+    in_background("Checking your osu! sign-in…", run)
 
 
 def act_fetch(body):
@@ -277,12 +311,14 @@ def act_settings(body):
 def act_start(_):
     if S.running():
         raise ValueError("Already downloading.")
-    if not S.cookie:
+    if S.busy:
+        raise ValueError("Wait for the current task to finish first.")
+    if not S.user:
         raise ValueError("Sign in first.")
     if not any(i["status"] == "queued" for i in S.queue):
         raise ValueError("Nothing to download — the queue is empty or you already have everything.")
     opts = {**S.opts, "songs_dir": S.songs_dir, "osu_paths": dict(S.osu_paths)}
-    S.job = core.Downloader(S.queue, S.cookie, S.folder, opts, S.on_item, S.log)
+    S.job = core.Downloader(S.queue, PROFILE_DIR, S.folder, opts, S.on_item, S.log)
     S.job.start()
 
 
@@ -398,7 +434,7 @@ def act_scan(_):
 
 
 ACTIONS = {
-    "login": act_login, "logout": act_logout, "fetch": act_fetch, "paste": act_paste,
+    "login": act_login, "cancel-login": act_cancel_login, "finish-login": act_finish_login, "logout": act_logout, "fetch": act_fetch, "paste": act_paste,
     "settings": act_settings, "start": act_start, "pause": act_pause, "stop": act_stop,
     "retry": act_retry, "toggle": act_toggle, "clear-queue": act_clear_queue,
     "clear-history": act_clear_history, "open-all": act_open_all,
@@ -515,6 +551,7 @@ def main():
         except OSError:
             pass  # still locked by something; try again next launch
 
+    verify_sign_in()
     PORT = free_port(preferred)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://127.0.0.1:{PORT}/"
