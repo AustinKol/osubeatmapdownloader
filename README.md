@@ -40,7 +40,7 @@ So far, this is still the best way that I know of to recover lost beatmaps folde
 - **Runs invisibly.** Chrome works in the background (headless). No windows popping up, no need to close your browser first.
 - **Skips what you already have.** Maps in your osu!stable `Songs` folder, in the download folder, or downloaded in an earlier session.
 - **One-click import** into **osu!stable** or **osu!lazer** — or automatically as each map finishes.
-- **Plays nice with osu!'s limits.** Rests between batches and cools down on its own when osu! says you've hit the download quota. Pause, resume, stop and retry failed maps any time.
+- **Handles osu!'s hourly limit for you.** When osu! stops accepting downloads, the app waits and retries on its own, and the time estimate includes those waits. Pause, resume, stop and retry failed maps any time.
 - **Portable.** Unzip and run. Settings, downloads and everything else stay inside the app's folder.
 - **Share your library.** Export your Songs folder as an ID list your friends can load.
 
@@ -55,6 +55,13 @@ So far, this is still the best way that I know of to recover lost beatmaps folde
 > Click **More info → Run anyway**. The full source is right here if you'd like to check it — or [run it from source](#run-from-source).
 
 A black window opens (that's the app — keep it open while downloading, close it to quit) and your browser shows the interface.
+
+> [!IMPORTANT]
+> **osu! allows about 200 beatmap downloads per hour** (osu!supporters get more). This is a limit on osu!'s side
+> and there's no way around it. When you reach it, the app waits and retries automatically after **5, 10, 20 and
+> 25 minutes** (an hour in total), then carries on — repeating that cycle if it's still blocked. Big batches
+> therefore take roughly **an hour per 200 maps**: 1,000 maps is about 5 hours. Just leave it running; nothing is
+> skipped, and the time-left estimate already includes the waits.
 
 ## How to use it
 
@@ -95,7 +102,8 @@ that contains `osu!.exe`. If the one you chose isn't installed, it falls back to
 
 ### 3. Download
 
-Hit **Download**. You can minimise the tab — the list, progress bar and time estimate keep updating.
+Hit **Download**. You can minimise the tab — the list, progress bar and time estimate keep updating. If osu!'s hourly
+limit kicks in, the status line shows when the next retry happens.
 
 <img src="docs/images/queue.png" width="660" alt="Download step with a queue of 40 maps ready to download">
 
@@ -108,7 +116,7 @@ When it's done, click **Import all into osu!** (or tick *Import as they finish* 
 | Problem | Fix |
 |---|---|
 | **"No download button"** for some maps | Turn on **Show explicit content** in your [osu! account settings](https://osu.ppy.sh/home/account/edit). Otherwise the map may have been removed. |
-| **"osu!'s download quota was reached"** | osu! limits how many maps you can download in a while. The app waits (5 min, then 10, 20 … up to an hour) and retries the same map on its own — just leave it running. |
+| **"osu!'s hourly download limit reached"** | Expected after about 200 maps in an hour. The app retries the same map after 5, 10, 20 and 25 minutes and continues once osu! allows it — just leave it running. Skipping to other maps doesn't help: the limit is per account, not per map. |
 | **"osu! didn't accept that session cookie"** | The cookie expired or was copied incompletely. Grab a fresh one. |
 | **Chrome won't start** | Make sure Google Chrome is installed and up to date. The first run needs internet to fetch a matching ChromeDriver. |
 | **Can't save settings** | The app's folder must be writable — don't put it in *Program Files*. (It will fall back to `%LOCALAPPDATA%\osu! Beatmap Downloader`.) |

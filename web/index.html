@@ -112,13 +112,18 @@ kbd { background: var(--panel); border: 1px solid var(--line); border-bottom-wid
   line-height: 1.5; text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,.3); cursor: default; }
 .tip:hover .tip-body, .tip:focus .tip-body, .tip:focus-within .tip-body { display: block; }
 
+.notice { background: var(--pink-soft); border: 1px solid color-mix(in srgb, var(--pink) 35%, transparent);
+  border-radius: 10px; padding: 10px 14px; font-size: 13.5px; color: var(--muted); margin: -4px 0 16px; }
+.notice b { color: var(--text); }
+.waiting { color: var(--yellow); }
+
 .progress { height: 10px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin: 14px 0 10px; }
 .progress > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--pink), var(--pink-2)); transition: width .4s; }
 .stats { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .stat { background: var(--panel-2); border-radius: 999px; padding: 3px 10px; color: var(--muted); border: 1px solid transparent; cursor: pointer; }
 .stat b { color: var(--text); font-variant-numeric: tabular-nums; }
 .stat.on { border-color: var(--pink); color: var(--text); }
-.now { display: flex; gap: 12px; align-items: center; min-height: 20px; color: var(--muted); font-size: 14px; }
+.now { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; min-height: 20px; color: var(--muted); font-size: 14px; }
 .spinner { width: 14px; height: 14px; border: 2px solid var(--pink-soft); border-top-color: var(--pink); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -311,7 +316,7 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
         <div><label class="f">Seconds between maps</label><input type="number" min="0" step="0.5" data-opt="delay"></div>
         <div><label class="f">Rest after every … maps</label><input type="number" min="1" data-opt="batch"></div>
         <div><label class="f">Rest length (s)</label><input type="number" min="0" data-opt="rest"></div>
-        <div><label class="f">Cooldown when rate limited (s)</label><input type="number" min="0" data-opt="cooldown"></div>
+        <div><label class="f">Pause after 3 failures in a row (s)</label><input type="number" min="0" data-opt="cooldown"></div>
       </div>
       <div class="help">
         <b>Missing some maps?</b> Turn on <i>Show explicit content</i> in your
@@ -327,6 +332,11 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
 <section class="card" id="step3">
   <h2><span class="n" id="n3">3</span> Download</h2>
   <p class="sub">Chrome runs invisibly in the background. Feel free to minimise this tab.</p>
+  <div class="notice">
+    <b>Heads-up: osu! allows about 200 beatmap downloads per hour</b> (more with osu!supporter).
+    When you reach it, the app waits and retries automatically after 5, 10, 20 and 25 minutes, then keeps going —
+    so big batches take roughly an hour per 200 maps. Just leave it running; nothing is skipped.
+  </div>
   <div class="row" style="align-items:center">
     <button class="btn primary big" id="startBtn" onclick="act('start')">Start downloading</button>
     <button class="btn big hidden" id="pauseBtn" onclick="act('pause')">Pause</button>
@@ -523,11 +533,24 @@ function render() {
   if (S.busy) now = `<div class="spinner"></div>${esc(S.busy)}`;
   else if (S.running && S.paused) now = '⏸ Paused';
   else if (S.running) {
-    const perMap = (S.opts.delay || 0) + 4 + (S.opts.rest || 0) / (S.opts.batch || 60);
-    const eta = fmtTime((c.queued || 0) * perMap);
-    now = `<div class="spinner"></div>` + (cur ? `Downloading <b>${esc(cur.title || '#' + cur.id)}</b>` : 'Working…')
-        + ` <span class="grow"></span> ${finished}/${want}${eta ? ' · ~' + eta + ' left' : ''}`;
-  } else if (total) now = `${total} map${total === 1 ? '' : 's'} in queue` + (c.have ? ` · ${c.have} skipped because you already have them` : '');
+    const j = S.job || {};
+    const eta = fmtTime(j.eta);
+    const etaText = eta ? ` · ~${eta} left` + (j.hourly_limit && (c.queued || 0) > 0 && j.eta > 3600 ? ' incl. osu! limit waits' : '') : '';
+    if (j.limited && j.retry_at) {
+      const at = new Date(j.retry_at * 1000).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+      now = `<div class="spinner"></div><span class="waiting">osu!'s hourly download limit reached — retrying at <b>${at}</b> (attempt ${j.retry_attempt} of ${j.retry_attempts})</span>`
+          + ` <span class="grow"></span> ${finished}/${want}${etaText}`;
+    } else {
+      now = `<div class="spinner"></div>` + (cur ? `Downloading <b>${esc(cur.title || '#' + cur.id)}</b>` : 'Working…')
+          + ` <span class="grow"></span> ${finished}/${want}${etaText}`;
+    }
+  } else if (total) {
+    const n = c.queued || 0;
+    // ~6 s per map, plus an hour's wait for every 200 maps after the first 200
+    const est = n ? fmtTime(n * ((S.opts.delay || 0) + 3) + Math.floor((n - 1) / 200) * 3600) : '';
+    now = `${total} map${total === 1 ? '' : 's'} in queue` + (c.have ? ` · ${c.have} skipped because you already have them` : '')
+        + (est ? ` · about ${est} to download` : '');
+  }
   $('now').innerHTML = now;
   $('n3').classList.toggle('ok', !S.running && !!c.done && !c.queued);
 

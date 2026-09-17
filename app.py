@@ -168,6 +168,8 @@ class State:
                 "clients": self.clients(),
                 "queue": self.queue, "counts": counts, "busy": self.busy,
                 "running": self.running(),
+                "job": self.job.status(counts.get("queued", 0) + counts.get("downloading", 0))
+                       if self.running() else None,
                 "paused": bool(self.job and self.job.pause_flag.is_set()),
                 "logs": [l for l in self.logs if l["i"] >= log_since],
             }

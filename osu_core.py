@@ -192,6 +192,24 @@ def _duration(seconds):
     return f"{seconds / 60:.0f} min" if seconds >= 60 else f"{seconds:.0f} s"
 
 
+# osu! allows a fixed number of downloads per rolling hour (200 for regular accounts,
+# more for osu!supporters). When it refuses, retry on this cycle — it adds up to an hour,
+# so the 4th retry lands after the window has rolled over. Then start again at 5 min.
+QUOTA_RETRY_WAITS = (5 * 60, 10 * 60, 20 * 60, 25 * 60)
+DEFAULT_HOURLY_LIMIT = 200
+
+
+def _resume_time(refused_at, batch_start):
+    """First retry (on the QUOTA_RETRY_WAITS cycle) after the batch's hour has rolled over."""
+    free_at = batch_start + 3600
+    t, i = refused_at, 0
+    while True:
+        t += QUOTA_RETRY_WAITS[i % len(QUOTA_RETRY_WAITS)]
+        i += 1
+        if t >= free_at:
+            return t
+
+
 class Downloader:
     """Runs a download queue on a background thread and reports through callbacks."""
 
@@ -205,6 +223,15 @@ class Downloader:
         self.stop_flag = threading.Event()
         self.pause_flag = threading.Event()
         self.warned_client = False
+        # progress/ETA bookkeeping, read by the UI
+        self.batch_done = 0             # downloads since the last time osu! let us resume
+        self.batch_started_at = None    # time of the batch's first download
+        self.hourly_limit = DEFAULT_HOURLY_LIMIT  # learned from the first refusal
+        self.limit_learned = False
+        self.quota_hit_at = None        # when osu! started refusing (None = not limited)
+        self.retry_at = None            # when the next retry happens while limited
+        self.retry_attempt = 0
+        self.per_map = None             # average seconds per successful map
         self.thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
@@ -213,6 +240,39 @@ class Downloader:
     def stop(self):
         self.stop_flag.set()
         self.pause_flag.clear()
+
+    def status(self, remaining):
+        """Progress info for the UI, including an ETA that accounts for osu!'s hourly limit."""
+        limit = self.hourly_limit
+        if not self.limit_learned and self.batch_done > limit:
+            limit = None  # past the default without being refused: probably a supporter
+        per_map = self.per_map or float(self.opts.get("delay", 3)) + 3
+        now = time.time()
+        t, left = now, remaining
+        if self.quota_hit_at:
+            batch_start = self.batch_started_at or self.quota_hit_at - 3600
+            t = batch_start = max(now, _resume_time(self.quota_hit_at, batch_start))
+            cap = limit or left
+        else:
+            batch_start = self.batch_started_at or now
+            cap = left if limit is None else max(0, limit - self.batch_done)
+        while True:
+            n = min(left, cap)
+            t += n * per_map
+            left -= n
+            if left <= 0 or not limit:
+                break
+            resumed = _resume_time(t, batch_start)  # osu! refuses at t; wait for the window
+            t = batch_start = resumed
+            cap = limit
+        return {
+            "eta": round(t - now),
+            "hourly_limit": limit,
+            "limited": bool(self.quota_hit_at),
+            "retry_at": self.retry_at,
+            "retry_attempt": self.retry_attempt,
+            "retry_attempts": len(QUOTA_RETRY_WAITS),
+        }
 
     def _sleep(self, seconds):
         """Interruptible sleep that also honours pause."""
@@ -256,7 +316,7 @@ class Downloader:
         batch, rest = int(self.opts.get("batch", 60)), float(self.opts.get("rest", 15))
         cooldown = float(self.opts.get("cooldown", 300))
         timeout = float(self.opts.get("timeout", 90))
-        since_rest, fails_in_row, quota_hits = 0, 0, 0
+        since_rest, fails_in_row = 0, 0
 
         for item in self.items:
             if self.stop_flag.is_set():
@@ -272,22 +332,43 @@ class Downloader:
                 return
 
             self._set(item, "downloading")
+            started = time.time()
             ok, reason = self._download_one(driver, item, timeout)
             since_rest += 1
+            attempt = 0
             while not ok and "quota" in reason.lower():
-                # osu! is refusing downloads for now: wait it out and retry the same map,
-                # backing off (5 min, 10, 20 … up to an hour) until osu! lets us continue
-                wait = min(cooldown * 2 ** quota_hits, 3600)
-                quota_hits += 1
+                # osu!'s hourly download limit: keep this map and retry it on a 5/10/20/25 min cycle
+                if not self.quota_hit_at:
+                    self.quota_hit_at = time.time()
+                    # only learn *higher* limits (supporters): a run started partway through
+                    # an hour sees fewer than the real allowance before being refused
+                    if self.batch_done > self.hourly_limit:
+                        self.hourly_limit = self.batch_done
+                    self.limit_learned = True
+                wait = QUOTA_RETRY_WAITS[attempt % len(QUOTA_RETRY_WAITS)]
+                attempt += 1
+                self.retry_attempt = (attempt - 1) % len(QUOTA_RETRY_WAITS) + 1
+                self.retry_at = time.time() + wait
                 self._set(item, "queued", error="")
-                self.log("warn", f"osu!'s download quota was reached. Waiting {_duration(wait)}, "
-                                 f"then retrying (attempt {quota_hits}).")
+                self.log("warn", f"osu!'s hourly download limit was reached. Retrying in {_duration(wait)} "
+                                 f"(at {time.strftime('%H:%M', time.localtime(self.retry_at))}, "
+                                 f"attempt {self.retry_attempt} of {len(QUOTA_RETRY_WAITS)}).")
                 if not self._sleep(wait):
                     return
+                self.retry_at = None
                 self._set(item, "downloading")
+                started = time.time()
                 ok, reason = self._download_one(driver, item, timeout)
+            if ok and self.quota_hit_at:
+                self.log("ok", "osu! is accepting downloads again.")
+                self.quota_hit_at, self.retry_attempt, self.batch_done = None, 0, 0
+                self.batch_started_at = None
             if ok:
-                fails_in_row = quota_hits = 0
+                fails_in_row = 0
+                self.batch_done += 1
+                self.batch_started_at = self.batch_started_at or started
+                took = time.time() - started + delay
+                self.per_map = took if self.per_map is None else self.per_map * 0.9 + took * 0.1
                 self._set(item, "done", file=ok, error="")
                 if self.opts.get("auto_open"):
                     self._import(ok)
@@ -353,9 +434,11 @@ class Downloader:
             done = find_osz(self.folder, sid)
             if done:
                 return done, ""
-            if time.time() - start > 10 and not any(self.folder.glob("*.crdownload")):
-                text = (driver.execute_script("return document.body ? document.body.innerText.slice(0, 500) : ''") or "").lower()
-                if "quota" in text or "too many" in text:
+            if time.time() - start > 1 and not any(self.folder.glob("*.crdownload")):
+                # a refused download replaces the page with osu!'s "too many requests" page
+                text = (driver.execute_script(
+                    "return document.title + ' ' + (document.body ? document.body.innerText.slice(0, 500) : '')") or "").lower()
+                if "quota" in text or "too many requests" in text:
                     driver.back()
                     return None, "osu! download quota reached."
             time.sleep(0.5)
