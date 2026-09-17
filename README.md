@@ -34,12 +34,17 @@ without needing any coding knowledge.
 
 So far, this is still the best way that I know of to recover lost beatmaps folders. This tool is also a great way to download anyone else's maps, like your favourite pro player's most played list.
 
+> [!NOTE]
+> **All beatmaps are downloaded directly from [osu.ppy.sh](https://osu.ppy.sh), the official osu! website,
+> using your own account.** No third-party mirrors or other download sites are used.
+
 ## Features
 
 - **Grab whole lists at once.** A player's *most played*, *favourites*, *ranked*, *loved*, *guest* or *graveyard* maps. You can also paste IDs/links or open a `.txt` a friend sent you.
 - **Runs invisibly.** Chrome works in the background (headless). No windows popping up, no need to close your browser first.
 - **Skips what you already have.** Maps in your osu!stable `Songs` folder, in the download folder, or downloaded in an earlier session.
 - **One-click import** into **osu!stable** or **osu!lazer**, or automatically as each map finishes.
+- **Official downloads only.** Every map comes straight from osu.ppy.sh, exactly as if you clicked Download yourself.
 - **Handles osu!'s hourly limit for you.** When osu! stops accepting downloads, the app waits and retries on its own, and the time estimate includes those waits. Pause, resume, stop and retry failed maps any time.
 - **Portable.** Unzip and run. Settings, downloads and everything else stay inside the app's folder.
 - **Share your library.** Export your Songs folder as an ID list your friends can load.
@@ -57,11 +62,11 @@ So far, this is still the best way that I know of to recover lost beatmaps folde
 A black window opens (that's the app: keep it open while downloading and close it to quit) and your browser shows the interface.
 
 > [!IMPORTANT]
-> **osu! allows about 200 beatmap downloads per hour** (osu!supporters get more). This is a limit on osu!'s side
-> and there's no way around it. When you reach it, the app waits and retries automatically after **5, 10, 20 and
-> 25 minutes** (an hour in total), then carries on, repeating that cycle if it's still blocked. Big batches
-> therefore take roughly **an hour per 200 maps**: 1,000 maps is about 5 hours. Just leave it running; nothing is
-> skipped, and the time-left estimate already includes the waits.
+> **osu! allows about 200 beatmap downloads per hour** (osu!supporters get more). This is a limit on osu!'s side,
+> and since every map comes from osu.ppy.sh, the app respects it. When you reach it, the app waits and retries
+> automatically after **5, 10, 20 and 25 minutes** (an hour in total), then carries on, repeating that cycle if it's
+> still blocked. Big batches therefore take roughly **an hour per 200 maps**: 1,000 maps is about 5 hours. Just leave
+> it running; nothing is skipped, and the time-left estimate already includes the waits.
 
 ## How to use it
 

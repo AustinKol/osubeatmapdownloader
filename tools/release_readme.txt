@@ -7,6 +7,9 @@ osu! Beatmap Downloader
 3. A browser tab opens with the app. Keep the black window open while downloading;
    close it to quit.
 
+All beatmaps are downloaded directly from osu.ppy.sh (the official osu!
+website) using your own account. No third-party mirrors are used.
+
 Heads-up: osu! allows about 200 beatmap downloads per hour (more for
 osu!supporters). When you reach it, the app waits and retries by itself after
 5, 10, 20 and 25 minutes, then keeps going. Big batches take roughly an hour
