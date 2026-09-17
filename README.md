@@ -32,7 +32,7 @@ For years those scripts stayed on my PC. I never got around to building a proper
 With the help of Claude Code, I quickly made a simple HTML interface so that others can enjoy it too,
 without needing any coding knowledge.
 
-This tool is also a great way to download anyone else's maps, like your favourite pro player's most played list.
+So far, this is still the best way that I know of to recover lost beatmaps folders. This tool is also a great way to download anyone else's maps, like your favourite pro player's most played list.
 
 ## Features
 
