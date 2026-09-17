@@ -90,6 +90,7 @@ class State:
         self.queue = []
         self.logs = []
         self.busy = ""
+        self.busy_token = None
         self.job = None
         self.signing_in = None  # (cancel, done) events while the sign-in window is open
 
@@ -185,7 +186,8 @@ S = State()
 # ---------------------------------------------------------------- actions
 
 def in_background(label, fn):
-    S.busy = label  # set before the thread starts so a second click can't slip in
+    token = object()
+    S.busy, S.busy_token = label, token  # set before the thread starts so a second click can't slip in
 
     def run():
         try:
@@ -193,8 +195,8 @@ def in_background(label, fn):
         except Exception as e:
             S.log("error", str(e) or type(e).__name__)
         finally:
-            if S.busy == label:
-                S.busy = ""
+            if S.busy_token is token:  # the task may have updated the label with its progress
+                S.busy, S.busy_token = "", None
     threading.Thread(target=run, daemon=True).start()
 
 
