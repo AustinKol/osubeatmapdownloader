@@ -50,6 +50,8 @@ header p { margin: 0; color: var(--muted); font-size: 13px; }
 .card.locked { opacity: .5; pointer-events: none; }
 
 label.f { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.flabel { display: flex; align-items: center; margin: 0 0 6px; }
+.flabel label.f { margin: 0; }
 input[type=text], input[type=password], input[type=number], select, textarea {
   width: 100%; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
   padding: 10px 12px; outline: none; min-width: 0;
@@ -242,7 +244,17 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
         <input id="userQuery" type="text" placeholder="Leave empty for yourself, or type a username / profile link">
       </div>
       <div style="width:170px">
-        <label class="f" for="kind">List</label>
+        <div class="flabel">
+          <label class="f" for="kind">List</label>
+          <i class="tip" tabindex="0" aria-label="About the Most played list">i
+            <span class="tip-body" role="tooltip">
+              <b>Most played</b> includes every beatmap you've played at least once, not just your favourites.
+              <br><br>
+              Choose it to <b>recover a lost beatmap collection</b>: leave Player empty and set How many high
+              enough to cover your whole library.
+            </span>
+          </i>
+        </div>
         <select id="kind">
           <option value="most_played">Most played</option>
           <option value="favourite">Favourites</option>

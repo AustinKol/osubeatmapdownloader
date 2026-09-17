@@ -84,6 +84,10 @@ The app doesn't control that window or read what you type.
 
 Type a player name (or leave it empty for yourself), pick a list and how many maps you want. Or switch to **From a list** and paste IDs or links.
 
+> [!TIP]
+> **Recovering a lost library?** Choose **Most played**. It includes every beatmap you've played at least once, so
+> leave Player empty and set *How many* high enough to cover your whole collection.
+
 Open **Folders & options** to choose where maps are saved, point the app at your osu!stable `Songs` folder so it skips maps you own, and pick which osu! to import into:
 
 <img src="docs/images/options.png" width="660" alt="Options: download folder, Songs folder, import into osu!stable (recommended) or osu!lazer">
