@@ -128,7 +128,8 @@ kbd { background: var(--panel); border: 1px solid var(--line); border-bottom-wid
 .spinner { width: 14px; height: 14px; border: 2px solid var(--pink-soft); border-top-color: var(--pink); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.list { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; max-height: 460px; overflow: auto; }
+.list { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; max-height: 460px; overflow: auto; position: relative; }
+.item .rest { display: contents; }
 .item { display: flex; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .item:last-child { border-bottom: 0; }
 .item img { width: 64px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--panel-2); flex: none; }
@@ -381,7 +382,8 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
 
 <script>
 const $ = id => document.getElementById(id);
-let S = null, logSince = 0, filter = 'all', listSig = '', wasRunning = false;
+let S = null, logSince = 0, filter = 'all', wasRunning = false;
+let listKey = '', rowEls = new Map(), lastStatsHtml = null;
 
 const STATUS = {
   queued: 'Queued', downloading: 'Downloading', done: 'Done', failed: 'Failed',
@@ -460,7 +462,60 @@ document.querySelectorAll('input[name=client]').forEach(el => el.addEventListene
 }));
 $('userQuery').addEventListener('keydown', e => e.key === 'Enter' && fetchMaps());
 
-function setFilter(f) { filter = f; listSig = ''; render(); }
+function setFilter(f) { filter = f; listKey = ''; render(); }
+
+// Every map gets a row. Rows are created once per queue/filter and then only the ones whose
+// status changed are updated, so even very long queues stay smooth and scrollable.
+function rowContent(i) {
+  return `<div class="meta">
+      <div class="t">${esc(i.title || 'Beatmap set #' + i.id)}</div>
+      <div class="a">${i.artist ? esc(i.artist) + ' · ' : ''}<a href="https://osu.ppy.sh/beatmapsets/${i.id}" target="_blank" rel="noopener">#${i.id}</a>${i.note && i.status === 'have' ? ' · ' + esc(i.note) : ''}</div>
+      ${i.status === 'failed' && i.error ? `<div class="err">${esc(i.error)}</div>` : ''}
+    </div>
+    ${!S.running && ['queued', 'have', 'skipped'].includes(i.status)
+      ? `<button class="btn sm ghost" onclick="act('toggle', {id: '${i.id}'})">${i.status === 'queued' ? 'Skip' : 'Download anyway'}</button>` : ''}
+    <span class="pill">${STATUS[i.status] || i.status}</span>`;
+}
+
+function renderList(total) {
+  const box = $('list');
+  const rows = S.queue.filter(i => filter === 'all' || i.status === filter);
+  const key = `${filter}|${total}|` + rows.map(i => i.id).join(',');
+  if (key !== listKey) {
+    listKey = key;
+    rowEls = new Map();
+    box.textContent = '';
+    if (!rows.length) {
+      box.innerHTML = `<div class="empty">${total ? 'Nothing here.' : 'Your queue is empty. Pick some beatmaps above.'}</div>`;
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const i of rows) {
+      const el = document.createElement('div');
+      el.innerHTML = `<img loading="lazy" src="https://assets.ppy.sh/beatmaps/${i.id}/covers/list.jpg" alt="" onerror="this.style.visibility='hidden'"><div class="rest"></div>`;
+      frag.appendChild(el);
+      rowEls.set(i.id, el);
+    }
+    box.appendChild(frag);
+  }
+  for (const i of rows) {
+    const el = rowEls.get(i.id);
+    const sig = [i.status, i.title, i.artist, i.error, i.note, S.running].join('|');
+    if (el.dataset.sig !== sig) {
+      el.dataset.sig = sig;
+      el.className = 'item s-' + i.status;
+      el.lastChild.innerHTML = rowContent(i);
+    }
+  }
+}
+
+function jumpToCurrent() {
+  const cur = S && S.queue.find(i => i.status === 'downloading') || S.queue.find(i => i.status === 'queued');
+  if (!cur) return;
+  if (filter !== 'all' && filter !== cur.status) setFilter('all');
+  const el = rowEls.get(cur.id), box = $('list');
+  if (el) box.scrollTop = el.offsetTop - box.clientHeight / 2 + el.offsetHeight / 2;
+}
 
 function fmtTime(sec) {
   if (!isFinite(sec) || sec <= 0) return '';
@@ -552,31 +607,12 @@ function render() {
   $('n3').classList.toggle('ok', !S.running && !!c.done && !c.queued);
 
   const statKeys = ['all', 'queued', 'downloading', 'done', 'failed', 'have', 'skipped', 'cancelled'];
-  $('stats').innerHTML = total ? statKeys.filter(k => k === 'all' || c[k]).map(k =>
+  const statsHtml = total ? statKeys.filter(k => k === 'all' || c[k]).map(k =>
     `<span class="stat ${filter === k ? 'on' : ''}" onclick="setFilter('${k}')">${k === 'all' ? 'All' : STATUS[k]} <b>${k === 'all' ? total : c[k]}</b></span>`
-  ).join('') : '';
+  ).join('') + (S.running ? `<span class="stat" onclick="jumpToCurrent()">Jump to current ↓</span>` : '') : '';
+  if (statsHtml !== lastStatsHtml) $('stats').innerHTML = lastStatsHtml = statsHtml;  // don't swap buttons mid-click
 
-  const sig = filter + '|' + S.queue.map(i => i.id + i.status + (i.title ? 1 : 0)).join(',');
-  if (sig !== listSig) {
-    listSig = sig;
-    const rows = S.queue.filter(i => filter === 'all' || i.status === filter);
-    const shown = rows.slice(0, 500);
-    $('list').innerHTML = !rows.length
-      ? `<div class="empty">${total ? 'Nothing here.' : 'Your queue is empty. Pick some beatmaps above.'}</div>`
-      : shown.map(i => `
-        <div class="item s-${i.status}">
-          <img loading="lazy" src="https://assets.ppy.sh/beatmaps/${i.id}/covers/list.jpg" alt="" onerror="this.style.visibility='hidden'">
-          <div class="meta">
-            <div class="t">${esc(i.title || 'Beatmap set #' + i.id)}</div>
-            <div class="a">${i.artist ? esc(i.artist) + ' · ' : ''}<a href="https://osu.ppy.sh/beatmapsets/${i.id}" target="_blank" rel="noopener">#${i.id}</a>${i.note && i.status === 'have' ? ' · ' + esc(i.note) : ''}</div>
-            ${i.status === 'failed' && i.error ? `<div class="err">${esc(i.error)}</div>` : ''}
-          </div>
-          ${!S.running && ['queued', 'have', 'skipped'].includes(i.status)
-            ? `<button class="btn sm ghost" onclick="act('toggle', {id: '${i.id}'})">${i.status === 'queued' ? 'Skip' : 'Download anyway'}</button>` : ''}
-          <span class="pill">${STATUS[i.status] || i.status}</span>
-        </div>`).join('')
-        + (rows.length > shown.length ? `<div class="empty">…and ${rows.length - shown.length} more</div>` : '');
-  }
+  renderList(total);
 
   // finished banner
   const showDone = !S.running && (c.done || c.failed) && !c.queued;
