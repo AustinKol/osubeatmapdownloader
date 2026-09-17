@@ -29,7 +29,7 @@ every beatmap you've played at least once, ranked from most played to least play
 the beatmap list from my profile, and used Selenium and ChromeDriver to download them. I was overjoyed that I got my whole library back!
 
 For years those scripts stayed on my PC. I never got around to building a proper interface or releasing them until now.
-Now, with the help of Claude, I quickly made a simple HTML interface so that others can enjoy it too,
+With the help of Claude Code, I quickly made a simple HTML interface so that others can enjoy it too,
 without needing any coding knowledge.
 
 This tool is also a great way to download anyone else's maps, like your favourite pro player's most played list.
