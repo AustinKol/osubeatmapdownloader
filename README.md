@@ -118,7 +118,8 @@ Hit **Download**. Maps come from every mirror you have enabled, at the same time
 
 <img src="docs/images/mirrors.png" width="660" alt="The mirrors panel showing each mirror, who runs it, and its live speed">
 
-When it's done, click **Import all into osu!** (or tick *Import as they finish* beforehand).
+When it's done, click **Import all into osu!** (or tick *Import as they finish* beforehand). Big batches can be paused, resumed or stopped while they are sent to osu!, and **🔇 Mute osu!** silences just osu!
+(not the rest of your PC) so the music doesn't jump with every map. Sound comes back when you click it again or close the app.
 
 <img src="docs/images/done.png" width="660" alt="Finished run with the import button">
 
@@ -229,6 +230,7 @@ Double-click **`build.bat`**. It produces:
 | [`osu_api.py`](osu_api.py) | osu! profile lists, ID parsing and map lookups, over plain HTTP |
 | [`mirrors.py`](mirrors.py) | The mirror registry, the scheduler and the downloader |
 | [`osu_local.py`](osu_local.py) | Finding osu!stable/lazer, importing maps, process cleanup |
+| [`osu_audio.py`](osu_audio.py) | Muting osu! during imports, through the Windows audio mixer |
 | [`osu_browser.py`](osu_browser.py) | The optional osu! step: sign-in and downloads via Chrome |
 | [`web/index.html`](web/index.html) | The whole interface, in plain HTML, CSS and JavaScript |
 | [`build.bat`](build.bat) · [`tools/`](tools) · [`assets/`](assets) | Release packaging (PyInstaller), the app icon, and the script that draws the diagram above |

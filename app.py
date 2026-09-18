@@ -6,6 +6,8 @@ this machine: the server only listens on 127.0.0.1.
 Main flow: fetch a list over plain HTTP, download from community mirrors. No account, no Chrome.
 Optional last step: sign in and fetch whatever no mirror had from osu.ppy.sh.
 """
+import atexit
+import ctypes
 import json
 import os
 import shutil
@@ -22,6 +24,7 @@ from urllib.parse import parse_qs, urlparse
 
 import mirrors
 import osu_api
+import osu_audio
 import osu_local
 
 FROZEN = getattr(sys, "frozen", False)  # running as the PyInstaller build
@@ -99,6 +102,8 @@ class State:
         self.busy_token = None
         self.job = None            # mirror download
         self.osu_job = None        # optional osu.ppy.sh download
+        self.importer = None       # sending finished maps to osu!
+        self.muter = osu_audio.OsuMuter()  # silences osu! while maps pour in
         self.signing_in = None     # (cancel, done) events while the sign-in window is open
         self.checked_missing = False
 
@@ -183,6 +188,8 @@ class State:
                 "queue": self.queue, "counts": counts, "busy": self.busy,
                 "running": self.running(), "osu_running": self.osu_running(),
                 "checked_missing": self.checked_missing,
+                "osu_muted": self.muter.muted, "mute_error": self.muter.error,
+                "importing": self.importer.status() if self.importer and self.importer.running() else None,
                 "job": job.status(remaining) if job and job.thread.is_alive() else None,
                 "paused": bool(job and job.pause_flag.is_set()),
                 "logs": [l for l in self.logs if l["i"] >= log_since],
@@ -473,27 +480,98 @@ def act_logout(_):
 
 # ---------------------------------------------------------------- importing and folders
 
+class Importer:
+    """Hands .osz files to osu! one at a time, and can be paused, resumed or stopped in between."""
+
+    def __init__(self, files, client):
+        self.files, self.client = files, client
+        self.sent = 0
+        self.go = threading.Event()
+        self.go.set()                   # cleared while paused
+        self.stopped = False
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def running(self):
+        return self.thread.is_alive()
+
+    def status(self):
+        return {"sent": self.sent, "total": len(self.files), "client": self.client, "paused": not self.go.is_set()}
+
+    def pause(self):
+        self.go.clear()
+
+    def resume(self):
+        self.go.set()
+
+    def stop(self):
+        self.stopped = True
+        self.go.set()                   # wake a paused loop so it can exit
+
+    def _run(self):
+        S.log("info", f"Sending {plural(len(self.files), 'map')} to osu!{self.client}…")
+        used = self.client
+        try:
+            for f in self.files:
+                self.go.wait()
+                if self.stopped:
+                    break
+                if not os.path.exists(f):   # osu! already took it, or it was deleted
+                    self.sent += 1
+                    continue
+                used = osu_local.import_into_osu(f, self.client, S.songs_dir, S.osu_paths)
+                self.sent += 1
+                time.sleep(3 if self.sent == 1 else 0.4)  # give osu! a moment to start before sending the rest
+        except Exception as e:
+            S.log("error", osu_local.friendly_error(e))
+            return
+        if used != self.client:
+            S.log("warn", f"osu!{self.client} isn't installed, so the maps went to "
+                          f"{'osu!' + used if used != 'default' else 'the default app'} instead.")
+        if self.stopped:
+            S.log("info", f"Stopped importing after {self.sent} of {len(self.files)}. "
+                          f"The rest are still in the download folder.")
+        else:
+            S.log("ok", "Handed everything to osu!, which will finish importing on its own.")
+
+
+def importer():
+    if not (S.importer and S.importer.running()):
+        raise ValueError("Nothing is being imported.")
+    return S.importer
+
+
+def act_import_pause(_):
+    importer().pause()
+    S.log("info", f"Paused importing at {S.importer.sent} of {len(S.importer.files)}.")
+
+
+def act_import_resume(_):
+    importer().resume()
+    S.log("info", "Resumed importing.")
+
+
+def act_import_stop(_):
+    importer().stop()
+
+
+def act_mute(body):
+    muted = bool(body.get("muted"))
+    S.muter.set(muted)
+    S.log("info", "Muted osu! (only osu!, nothing else on your PC). It'll be unmuted when you click again "
+                  "or close this app." if muted else "Unmuted osu!.")
+
+
 def act_open_all(_):
+    if S.importer and S.importer.running():
+        raise ValueError("Already importing. Pause or stop it first.")
     files = [f for it in S.queue if it["status"] == "done"
              for f in [it.get("file") or osu_api.find_osz(S.folder, it["id"])] if f and os.path.exists(f)]
     if not files:
         files = sorted(str(p) for p in Path(S.folder).glob("*.osz"))
     if not files:
         raise ValueError("No .osz files waiting in the download folder (osu! may have imported them already).")
-    client = S.opts["import_client"]
-
-    def run():
-        S.log("info", f"Sending {len(files)} maps to osu!{client}…")
-        used = client
-        for i, f in enumerate(files, 1):
-            used = osu_local.import_into_osu(f, client, S.songs_dir, S.osu_paths)
-            S.busy = f"Importing… {i}/{len(files)}"
-            time.sleep(0.4 if i > 1 else 3)  # give osu! a moment to start before sending the rest
-        if used != client:
-            S.log("warn", f"osu!{client} isn't installed, so the maps went to "
-                          f"{'osu!' + used if used != 'default' else 'the default app'} instead.")
-        S.log("ok", "Handed everything to osu!, which will finish importing on its own.")
-    in_background("Importing…", run)
+    S.importer = Importer(files, S.opts["import_client"])
+    S.importer.thread.start()
 
 
 def act_open_folder(body):
@@ -536,7 +614,8 @@ ACTIONS = {
     "toggle": act_toggle, "clear-queue": act_clear_queue,
     "check-missing": act_check_missing, "start-osu": act_start_osu,
     "login": act_login, "cancel-login": act_cancel_login, "finish-login": act_finish_login,
-    "logout": act_logout, "open-all": act_open_all, "open-folder": act_open_folder,
+    "logout": act_logout, "open-all": act_open_all, "import-pause": act_import_pause,
+    "import-resume": act_import_resume, "import-stop": act_import_stop, "mute": act_mute, "open-folder": act_open_folder,
     "browse": act_browse, "scan": act_scan,
 }
 
@@ -625,6 +704,21 @@ PORT = PREFERRED_PORT
 JOB = None  # Windows job handle that closes our Chrome processes when the app exits
 
 
+_console_handler = None
+
+
+def unmute_on_exit():
+    """Give osu! its sound back however the app ends, including the console window's close button."""
+    global _console_handler
+    atexit.register(S.muter.restore)
+    if os.name == "nt":
+        def on_console_event(_event):
+            S.muter.restore()
+            return False                # let Windows carry on closing us
+        _console_handler = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)(on_console_event)
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_console_handler, True)
+
+
 def main():
     global PORT, JOB
     for stream in (sys.stdout, sys.stderr):
@@ -632,7 +726,7 @@ def main():
             stream.reconfigure(errors="replace")
     if "--selftest" in sys.argv:       # confirms a build has everything, including the optional parts
         import osu_browser
-        print("modules ok:", ", ".join(m.__name__ for m in (osu_api, mirrors, osu_local, osu_browser)))
+        print("modules ok:", ", ".join(m.__name__ for m in (osu_api, mirrors, osu_local, osu_audio, osu_browser)))
         print("mirrors:", ", ".join(m["name"] for m in mirrors.MIRRORS))
         print("chrome:", osu_browser.find_chrome() or "not installed (only needed for the osu! step)")
         return
@@ -673,6 +767,7 @@ def main():
           "  close it (or press Ctrl+C) to quit.\n", flush=True)
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    unmute_on_exit()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
