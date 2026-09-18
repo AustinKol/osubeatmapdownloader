@@ -53,7 +53,9 @@ header p { margin: 0; color: var(--muted); font-size: 13px; }
   display: inline-grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; }
 .card h2 .n.ok { background: var(--pink); color: #fff; }
 .card .sub { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
-.card.locked { opacity: .5; pointer-events: none; }
+.card.locked > * { opacity: .5; pointer-events: none; }
+/* the mirrors stay live during a download: their speeds are worth watching and they can be switched mid-run */
+.card.locked > #mirrorsBox { opacity: 1; pointer-events: auto; }
 
 label.f { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
 .flabel { display: flex; align-items: center; margin: 0 0 6px; }
