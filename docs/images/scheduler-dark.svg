@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 680" width="1180" height="680" role="img" aria-label="How the mirror load balancer works">
+<defs><marker id="arrow-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#756d7e"/></marker><marker id="pink-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#ff66aa"/></marker></defs>
+<rect width="1180" height="680" fill="#17141a"/>
+<text x="40" y="42" font-family="Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700" fill="#f1edf5" text-anchor="start">1. Queue</text>
+<text x="40" y="62" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="400" fill="#a79fb0" text-anchor="start">from a profile list or pasted IDs</text>
+<rect x="30" y="76" width="250" height="150" rx="12" fill="#211d25" stroke="#3a3342" stroke-width="1.5"/>
+<text x="46" y="104" font-family="Segoe UI, system-ui, sans-serif" font-size="14" font-weight="600" fill="#f1edf5" text-anchor="start">1,000 beatmapsets</text>
+<rect x="46" y="120" width="218" height="44" rx="9" fill="#2a2530" stroke="#6fdc8c" stroke-width="1.5"/>
+<text x="58" y="140" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="600" fill="#f1edf5" text-anchor="start">ranked / approved / loved</text>
+<text x="58" y="156" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">any mirror can serve these</text>
+<rect x="46" y="170" width="218" height="44" rx="9" fill="#2a2530" stroke="#ffd166" stroke-width="1.5"/>
+<text x="58" y="190" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="600" fill="#f1edf5" text-anchor="start">graveyard / pending / unknown</text>
+<text x="58" y="206" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">full archives only</text>
+<text x="330" y="42" font-family="Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700" fill="#f1edf5" text-anchor="start">2. Scheduler</text>
+<text x="330" y="62" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="400" fill="#a79fb0" text-anchor="start">picks a mirror per map, never waits</text>
+<rect x="320" y="76" width="300" height="330" rx="12" fill="#211d25" stroke="#3a3342" stroke-width="1.5"/>
+<rect x="336" y="106" width="268" height="68" rx="9" fill="#2a2530" stroke="#3a3342" stroke-width="1.5"/>
+<text x="350" y="128" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#ff66aa" text-anchor="start">Water filling</text>
+<text x="350" y="145" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">serve whichever class is furthest</text>
+<text x="350" y="159" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">behind, so both finish together</text>
+<rect x="336" y="182" width="268" height="68" rx="9" fill="#2a2530" stroke="#3a3342" stroke-width="1.5"/>
+<text x="350" y="204" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#ff66aa" text-anchor="start">Merit order</text>
+<text x="350" y="221" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">measured MB/s x success rate,</text>
+<text x="350" y="235" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">minus closeness to a published quota</text>
+<rect x="336" y="258" width="268" height="68" rx="9" fill="#2a2530" stroke="#3a3342" stroke-width="1.5"/>
+<text x="350" y="280" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#ff66aa" text-anchor="start">Self tuning</text>
+<text x="350" y="297" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">+1 stream after 5 clean downloads,</text>
+<text x="350" y="311" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">halved on a refusal (AIMD)</text>
+<rect x="336" y="334" width="268" height="68" rx="9" fill="#2a2530" stroke="#3a3342" stroke-width="1.5"/>
+<text x="350" y="356" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#ff66aa" text-anchor="start">Instant failover</text>
+<text x="350" y="373" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">429/403 parks that mirror only;</text>
+<text x="350" y="387" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">404 means try the next one</text>
+<path d="M 280 142 L 316 180" stroke="#756d7e" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)"/>
+<path d="M 280 192 L 316 205" stroke="#756d7e" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)"/>
+<text x="672" y="42" font-family="Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700" fill="#f1edf5" text-anchor="start">3. Mirror pool</text>
+<text x="672" y="62" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="400" fill="#a79fb0" text-anchor="start">about 10 downloads in flight, all mirrors at once</text>
+<rect x="662" y="82" width="300" height="62" rx="10" fill="#211d25" stroke="#ff66aa" stroke-width="1.5"/>
+<circle cx="684" cy="113" r="6" fill="#ff66aa"/>
+<text x="700" y="108" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#f1edf5" text-anchor="start">catboy.best</text>
+<text x="700" y="126" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">full archive · cap 4 · quota aware</text>
+<path d="M 624 220 L 656 113" stroke="#756d7e" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)"/>
+<rect x="662" y="154" width="300" height="62" rx="10" fill="#211d25" stroke="#6fdc8c" stroke-width="1.5"/>
+<circle cx="684" cy="185" r="6" fill="#6fdc8c"/>
+<text x="700" y="180" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#f1edf5" text-anchor="start">osudl.org</text>
+<text x="700" y="198" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">ranked / loved only · cap 5 · fastest</text>
+<path d="M 624 220 L 656 185" stroke="#756d7e" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)"/>
+<rect x="662" y="226" width="300" height="62" rx="10" fill="#211d25" stroke="#7cc4ff" stroke-width="1.5"/>
+<circle cx="684" cy="257" r="6" fill="#7cc4ff"/>
+<text x="700" y="252" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#f1edf5" text-anchor="start">mirror.nekoha.moe</text>
+<text x="700" y="270" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">full archive · cap 3 · widest coverage</text>
+<path d="M 624 220 L 656 257" stroke="#756d7e" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)"/>
+<rect x="662" y="298" width="300" height="62" rx="10" fill="#211d25" stroke="#ffd166" stroke-width="1.5"/>
+<circle cx="684" cy="329" r="6" fill="#ffd166"/>
+<text x="700" y="324" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#f1edf5" text-anchor="start">osu.direct</text>
+<text x="700" y="342" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">full archive · cap 3 · 120 req/min</text>
+<path d="M 624 220 L 656 329" stroke="#756d7e" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)"/>
+<text x="672" y="420" font-family="Segoe UI, system-ui, sans-serif" font-size="15" font-weight="700" fill="#f1edf5" text-anchor="start">4. Every file is checked</text>
+<rect x="662" y="436" width="300" height="96" rx="12" fill="#211d25" stroke="#3a3342" stroke-width="1.5"/>
+<text x="678" y="462" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="400" fill="#f1edf5" text-anchor="start">a zip holding at least one .osu</text>
+<text x="678" y="482" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="400" fill="#f1edf5" text-anchor="start">the .osu names this beatmapset</text>
+<text x="678" y="508" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">anything else is thrown away and the</text>
+<text x="678" y="522" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">map is fetched from another mirror</text>
+<path d="M 930 370 L 930 430" stroke="#756d7e" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)"/>
+<rect x="320" y="436" width="300" height="96" rx="12" fill="#211d25" stroke="#6fdc8c" stroke-width="1.5"/>
+<text x="336" y="462" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#f1edf5" text-anchor="start">downloads\ folder</text>
+<text x="336" y="482" font-family="ui-monospace, Consolas, monospace" font-size="12" font-weight="400" fill="#a79fb0" text-anchor="start">&lt;id&gt; Artist - Title.osz</text>
+<text x="336" y="508" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">imported into osu!stable or lazer,</text>
+<text x="336" y="522" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">in one click or as each map lands</text>
+<path d="M 658 484 L 624 484" stroke="#6fdc8c" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)"/>
+<rect x="30" y="436" width="250" height="96" rx="12" fill="#211d25" stroke="#ffd166" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="46" y="462" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#ffd166" text-anchor="start">Not on any mirror</text>
+<text x="46" y="482" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">checked against osu! itself,</text>
+<text x="46" y="496" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">then optionally downloaded</text>
+<text x="46" y="510" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">there with your account</text>
+<text x="46" y="524" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#756d7e" text-anchor="start">(the only step needing Chrome)</text>
+<path d="M 316 484 L 286 484" stroke="#ffd166" stroke-width="1.8" fill="none" marker-end="url(#arrow-dark)" stroke-dasharray="6 5"/>
+<rect x="30" y="560" width="932" height="86" rx="12" fill="#2a2530" stroke="#3a3342" stroke-width="1.5"/>
+<text x="48" y="588" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#f1edf5" text-anchor="start">Why it is fast</text>
+<circle cx="54" cy="604" r="2.5" fill="#ff66aa"/>
+<text x="66" y="608" font-family="Segoe UI, system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#a79fb0" text-anchor="start">Mirrors complement each other: one holds maps another lacks, so a 404 costs a retry, not a loss.</text>
+<circle cx="54" cy="620" r="2.5" fill="#ff66aa"/>
+<text x="66" y="624" font-family="Segoe UI, system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#a79fb0" text-anchor="start">A rate-limited mirror parks itself and the map moves on, so the pool never idles (catboy cycles ~60 maps, sits out ~50 s, returns).</text>
+<circle cx="54" cy="636" r="2.5" fill="#ff66aa"/>
+<text x="66" y="640" font-family="Segoe UI, system-ui, sans-serif" font-size="11.5" font-weight="400" fill="#a79fb0" text-anchor="start">Measured on a real 1,000-map library: 2.5 minutes, 7.3 GB, about 49 MB/s, nothing missing.</text>
+</svg>

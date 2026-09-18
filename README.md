@@ -4,7 +4,7 @@
 
 # osu! Beatmap Downloader
 
-**Bulk-download osu! beatmaps in the background, then import them into osu! in one click.**
+**Bulk-download osu! beatmaps from community mirrors, then import them into osu! in one click.**
 
 Your most played maps, a friend's favourites, or any list of IDs, hundreds at a time,
 with a simple app that runs on your own PC.
@@ -15,7 +15,7 @@ with a simple app that runs on your own PC.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hero-light.png">
-  <img src="docs/images/hero-dark.png" width="760" alt="The app downloading a queue of beatmaps: progress bar, 14 of 40 done, list of maps with cover art and status">
+  <img src="docs/images/hero-dark.png" width="760" alt="The app downloading a queue of beatmaps from several mirrors at once">
 </picture>
 
 </div>
@@ -35,25 +35,84 @@ without needing any coding knowledge.
 So far, this is still the best way that I know of to recover lost beatmaps folders. This tool is also a great way to download anyone else's maps, like your favourite pro player's most played list.
 
 > [!NOTE]
-> **All beatmaps are downloaded directly from [osu.ppy.sh](https://osu.ppy.sh), the official osu! website,
-> using your own account.** No third-party mirrors or other download sites are used.
+> **No osu! account is needed.** Beatmaps come from community mirrors, several at once, so there is no
+> hourly download limit to wait out. Maps that no mirror has can be fetched from osu.ppy.sh afterwards,
+> if you choose to sign in for that last step.
 
 ## Features
 
 - **Grab whole lists at once.** A player's *most played*, *favourites*, *ranked*, *loved*, *guest* or *graveyard* maps. You can also paste IDs/links or open a `.txt` a friend sent you.
-- **Runs invisibly.** Chrome works in the background (headless). No windows popping up, no need to close your browser first.
+- **Fast.** Downloads run from several mirrors at once and the app tunes itself as it goes. A real 1,000-map library took **2.5 minutes** in testing (7.3 GB, about 49 MB/s on a 500 Mbit line), against roughly 5 hours through osu! itself. See [the benchmark](docs/benchmark.md).
+- **No account, no browser.** The main flow is plain HTTP. Chrome is only involved if you opt into the final osu! step.
+- **Pick your mirrors.** Turn each one on or off, with a note on who runs it and what it covers.
 - **Skips what you already have.** Maps in your osu!stable `Songs` folder, in the download folder, or downloaded in an earlier session.
 - **One-click import** into **osu!stable** or **osu!lazer**, or automatically as each map finishes.
-- **Official downloads only.** Every map comes straight from osu.ppy.sh, exactly as if you clicked Download yourself.
-- **Handles osu!'s hourly limit for you.** When osu! stops accepting downloads, the app waits and retries on its own, and the time estimate includes those waits. Pause, resume, stop and retry failed maps any time.
+- **Nothing is lost.** Maps no mirror has are checked against osu! and sorted into "still downloadable" and "gone for good".
 - **Portable.** Unzip and run. Settings, downloads and everything else stay inside the app's folder.
 - **Share your library.** Export your Songs folder as an ID list your friends can load.
 
+## The mirror load balancer
+
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/scheduler-light.svg">
+  <img src="docs/images/scheduler-dark.svg" width="900" alt="Architecture of the mirror load balancer: the queue splits into ranked and full-archive classes, the scheduler picks a mirror per map, the mirror pool serves about ten downloads at once, every file is validated, and anything no mirror has falls through to the optional osu! step">
+</picture>
+</div>
+
+Mirrors are run by volunteers and no two behave alike: they differ in coverage, in speed, in what limits they
+publish, and all of that changes minute to minute. Pulling a thousand maps quickly *without* leaning on any one
+host is therefore a scheduling problem, and solving it properly is the part of this app I'm most happy with.
+The app treats every enabled mirror as one pool and decides, at the instant a slot frees up, who should serve the
+next map. It all lives in [`mirrors.py`](mirrors.py), and the numbers below are measured, not guessed
+(see [the benchmark](docs/benchmark.md)).
+
+**Two classes of map, filled like water.** Ranked, approved and loved maps can come from any mirror; graveyard,
+pending and unknown maps need a full-archive mirror, so the ranked-only mirrors are never even asked for them.
+That makes the full archives a scarce resource. When a full-archive slot opens it takes an unknown-status map only
+while `unknown_left / full_archive_capacity >= ranked_left / total_capacity`, and otherwise helps with ranked maps.
+Both classes then run dry at about the same moment, instead of ending with one mirror grinding through a tail of
+graveyard maps alone.
+
+**Mirrors are chosen on merit, not on a hard-coded ranking.** Each mirror carries a score of
+`recent MB/s (EWMA) x success rate x free slots`, damped as it approaches a quota it has published, with a little
+jitter so ten workers don't stampede the same host. A mirror having a bad minute quietly loses work; when it
+recovers, its score climbs back on its own. This is why the priority list doesn't need to be right: the run measures
+it for you. In testing, the fastest mirror ended up doing 72% of a 1,000-map list without ever being told to.
+
+**Concurrency tunes itself.** Every mirror starts at 2 parallel downloads, gains one after five clean successes up
+to a deliberately modest cap, and halves on a refusal: additive increase, multiplicative decrease, the same feedback
+shape TCP uses to find a link's capacity. The pool settles near what each host is actually happy to give, which
+during the benchmark drifted between 1 and 5 streams per mirror.
+
+**A refusal costs no time at all.** A `429` (or a `403`, which usually just means too many connections) parks *that
+mirror* until the moment named by its `Retry-After` or rate-limit headers, and the map it was carrying is handed to
+another mirror in the same breath. Nothing sleeps, nothing retries in place, and the queue never stops moving.
+catboy, for example, serves about 60 maps, sits out roughly 50 seconds, and rejoins by itself; the run doesn't
+notice. A `404` is information rather than failure: that mirror doesn't have the map, so it's remembered and the map
+is tried elsewhere.
+
+**Slow streams are cut, and the finish is raced.** A download under 50 KB/s for 20 seconds is abandoned and
+re-dispatched. A map still running after 25 seconds may be raced on a second mirror, with the first complete file
+winning and the loser's partial file discarded. Duplicates are impossible because the race is decided on the
+beatmapset id, not the filename.
+
+**Nothing counts until it's verified.** A finished file must be a real zip, hold at least one `.osu` difficulty, and
+that difficulty's `BeatmapSetID` must match the map we asked for. Anything else is deleted, the mirror takes a short
+backoff, the map goes to another mirror, and the activity log gets one line quoting the first ~140 characters of
+whatever arrived (nearly always a rate-limit page). The app also checks the drive has room before a run starts,
+since 1,000 maps is about 7 GB.
+
+The result, on a real 1,000-map library: **2.5 minutes, 7.3 GB, about 49 MB/s**, no maps missed, no invalid files,
+and seven mirror failures that were all recovered elsewhere without me noticing. Through osu! itself, the same list
+takes roughly five hours.
+
 ## Download
 
-1. Install [Google Chrome](https://www.google.com/chrome/) if you don't have it.
-2. Download **`osu-beatmap-downloader-win64.zip`** from the [latest release](https://github.com/AustinKol/osubeatmapdownloader/releases/latest).
-3. Unzip it anywhere you like (not *Program Files*), open the folder and double-click **`osu! Beatmap Downloader.exe`**.
+1. Download **`osu-beatmap-downloader-win64.zip`** from the [latest release](https://github.com/AustinKol/osubeatmapdownloader/releases/latest).
+2. Unzip it anywhere you like (not *Program Files*), open the folder and double-click **`osu! Beatmap Downloader.exe`**.
+
+Google Chrome is only needed for the optional osu! step at the end.
 
 > [!NOTE]
 > The app isn't code-signed, so Windows SmartScreen may say it *protected your PC*.
@@ -61,41 +120,22 @@ So far, this is still the best way that I know of to recover lost beatmaps folde
 
 A black window opens (that's the app: keep it open while downloading and close it to quit) and your browser shows the interface.
 
-> [!IMPORTANT]
-> **osu! allows about 200 beatmap downloads per hour** (osu!supporters get more). This is a limit on osu!'s side,
-> and since every map comes from osu.ppy.sh, the app respects it. When you reach it, the app waits and retries
-> automatically after **5, 10, 20 and 25 minutes** (an hour in total), then carries on, repeating that cycle if it's
-> still blocked. Big batches therefore take roughly **an hour per 200 maps**: 1,000 maps is about 5 hours. Just leave
-> it running; nothing is skipped, and the time-left estimate already includes the waits.
-
 ## How to use it
 
-### 1. Sign in to osu!
+### 1. Choose beatmaps
 
-osu! only lets signed-in players download maps. Click **Sign in with osu!** and a Chrome window opens on osu!'s own
-sign-in page. Sign in there (including the captcha and any email code osu! asks for), then click **I've signed in**
-in the app, or just close that window. The app checks with osu! and shows your name. You stay signed in for
-about a month.
-
-<img src="docs/images/connect.png" width="660" alt="Sign-in step with a 'Sign in with osu!' button and an explanation of how sign-in works">
-
-The app doesn't control that window or read what you type.
-
-> [!WARNING]
-> Your sign-in is saved in the app's `data\` folder, so treat that folder like a password: don't share or upload
-> it. **Sign out** (top right) deletes the saved sign-in.
-
-### 2. Choose beatmaps
-
-Type a player name (or leave it empty for yourself), pick a list and how many maps you want. Or switch to **From a list** and paste IDs or links.
+Type a player name, pick a list and how many maps you want. Or switch to **From a list** and paste IDs or links.
 
 > [!TIP]
-> **Recovering a lost library?** Choose **Most played**. It includes every beatmap you've played at least once, so
-> leave Player empty and set *How many maps?* high enough to cover your whole collection.
+> **Recovering a lost library?** Choose **Most played**. It includes every beatmap that player has played at least
+> once, so set *How many maps?* high enough to cover the whole collection.
 
-Open **Folders & options** to choose where maps are saved, point the app at your osu!stable `Songs` folder so it skips maps you own, and pick which osu! to import into:
+<img src="docs/images/queue.png" width="660" alt="Choosing a player's most played maps, with the queue filled in below">
 
-<img src="docs/images/options.png" width="660" alt="Options: download folder, Songs folder, import into osu!stable (recommended) or osu!lazer">
+Under **Folders & options** you can choose where maps are saved, point the app at your osu!stable `Songs` folder
+so it skips maps you own, pick which osu! to import into, and set how many downloads run at once.
+
+<img src="docs/images/options.png" width="660" alt="Options: download folder, Songs folder, import into osu!stable or osu!lazer, skip videos, downloads at once">
 
 <details>
 <summary><b>osu!stable or osu!lazer?</b></summary>
@@ -110,52 +150,76 @@ The app finds both automatically (wherever they're installed). If it can't, clic
 that contains `osu!.exe`. If the one you chose isn't installed, it falls back to the other.
 </details>
 
-### 3. Download
+### 2. Download
 
-Hit **Download**. You can minimise the tab while the list, progress bar and time estimate keep updating. If osu!'s hourly
-limit kicks in, the status line shows when the next retry happens.
+Hit **Download**. Maps come from every mirror you have enabled, at the same time.
 
-<img src="docs/images/queue.png" width="660" alt="Download step with a queue of 40 maps ready to download">
+<img src="docs/images/mirrors.png" width="660" alt="The mirrors panel showing each mirror, who runs it, and its live speed">
 
-When it's done, click **Import all into osu!** (or tick *Import as they finish* beforehand). Anything that failed can be retried or saved as a list.
+When it's done, click **Import all into osu!** (or tick *Import as they finish* beforehand).
 
-<img src="docs/images/done.png" width="660" alt="Finished: 38 maps downloaded, 2 failed, with Import all, Show folder and Save failed list buttons">
+<img src="docs/images/done.png" width="660" alt="Finished run with the import button">
+
+### 3. Maps the mirrors didn't have (optional)
+
+Mirrors are community archives, so a few maps may be missing: very new maps, or ones nobody has copied.
+The app collects those and can check them against osu! itself, which needs no account:
+
+- **Still on osu!**: sign in and the app downloads them in a hidden Chrome, respecting osu!'s hourly limit.
+- **Gone for good**: deleted or download-disabled, so nowhere has them. You can save the list.
+
+<img src="docs/images/connect.png" width="660" alt="The optional final step: check on osu! and sign in to fetch the remainder">
+
+> [!WARNING]
+> If you use that last step, your sign-in is saved in the app's `data\` folder, so treat that folder like a
+> password: don't share or upload it. **Sign out** (top right) deletes it.
+
+## Mirrors
+
+| Mirror | Run by | Coverage | Notes |
+|---|---|---|---|
+| [catboy.best](https://catboy.best) | Mino | Full archive | Fast, publishes its remaining quota so the app can pace itself |
+| [osudl.org](https://osudl.org) | kaysting | Ranked, approved, loved (~61k sets) | Very fast; takes ranked maps off the other mirrors |
+| [mirror.nekoha.moe](https://mirror.nekoha.moe) | Nekoha | Full archive (~1.3M sets) | Slower per download, so it runs several at once |
+| [osu.direct](https://osu.direct) | osu.direct | Full archive | Dependable, about 120 requests a minute |
+| [sayobot](https://osu.sayobot.cn) | SayoBot | Mostly complete | Off by default: slow from outside Asia |
+| nerinyan.moe | NeriNyan | Full archive | Disabled: refused about half of our test requests |
+| beatconnect.io | beatconnect | Full archive | Disabled: asks not to be used by scripts |
+
+Please be kind to them: they're volunteers paying for bandwidth. The defaults are deliberately modest, and
+[docs/benchmark.md](docs/benchmark.md) records what each mirror covered, how fast it was, and how it handles limits.
+
+How the work is spread between them, and what happens when one of them says no, is described in
+[The mirror load balancer](#the-mirror-load-balancer) above.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| **"No download button"** for some maps | Turn on **Show explicit content** in your [osu! account settings](https://osu.ppy.sh/home/account/edit). Otherwise the map may have been removed. |
-| **"osu!'s hourly download limit reached"** | Expected after about 200 maps in an hour. The app retries the same map after 5, 10, 20 and 25 minutes and continues once osu! allows it, so just leave it running. Skipping to other maps doesn't help: the limit is per account, not per map. |
-| **"You're signed out of osu!"** | Your saved sign-in expired (after about a month) or you signed out. Click **Sign in with osu!** again. |
-| **The sign-in window doesn't appear** | Check your taskbar for a new Chrome window. Google Chrome must be installed. |
-| **Chrome won't start** | Make sure Google Chrome is installed and up to date. The first run needs internet to fetch a matching ChromeDriver. |
-| **Can't save settings** | The app's folder must be writable, so don't put it in *Program Files*. (It will fall back to `%LOCALAPPDATA%\osu! Beatmap Downloader`.) |
-| **Want to see what the browser is doing** | *Folders & options* → **Show the browser**. The *Activity log* at the bottom also shows every step. |
+| **Some maps say "not on mirrors"** | Use **Check on osu!** in step 3. Mirrors are community archives and don't have everything, especially brand-new maps. |
+| **Downloads seem slow** | Turn on more mirrors, raise *Downloads at once*, and leave **Skip videos** on (maps are about 7x smaller without video). Your own connection is usually the limit. |
+| **Running out of disk** | Budget about **7 GB per 1,000 maps** without video (median map is 6.5 MB), or roughly 20 GB with video. |
+| **A mirror shows "waiting"** | It asked us to slow down. The app keeps going on the others and picks it up again automatically. |
+| **"osu!'s hourly download limit reached"** | Only in the optional osu! step: it allows about 200 downloads an hour. The app waits and retries by itself. |
+| **"You're signed out of osu!"** | Your saved sign-in expired (after about a month). Sign in again in step 3. |
+| **Chrome won't start** | Only the optional osu! step needs Chrome. Make sure it's installed and up to date. |
+| **Can't save settings** | The app's folder must be writable, so don't put it in *Program Files*. (It falls back to `%LOCALAPPDATA%\osu! Beatmap Downloader`.) |
 
 ## How it works
 
 ```mermaid
 flowchart LR
     UI["Your browser<br/>(the app's UI)"] <-->|127.0.0.1 only| App["Local app<br/>(Python)"]
-    App -->|profile lists| API["osu! website"]
-    App -->|drives| Chrome["Headless Chrome<br/>using your saved sign-in"]
-    Chrome -->|clicks Download| API
-    Chrome -->|.osz files| Folder["downloads folder"]
+    App -->|profile lists, plain HTTP| API["osu! website"]
+    App -->|downloads in parallel| M["Mirrors<br/>catboy · osudl · nekoha · osu.direct"]
+    M -->|.osz files| Folder["downloads folder"]
+    App -.->|"only what mirrors lack<br/>(optional, needs sign-in)"| Chrome["Headless Chrome"]
+    Chrome -.-> API
     Folder -->|Import| Osu["osu!stable / osu!lazer"]
 ```
 
-osu! doesn't hand out direct download links to scripts, so the app does what you'd do by hand: a hidden Chrome
-opens each beatmap page and clicks **Download**. [Selenium](https://www.selenium.dev/) controls Chrome and
-fetches a ChromeDriver that matches your Chrome version automatically.
-
 Everything stays on your machine. The interface is served only on `127.0.0.1`, requests from other websites are
-rejected, and your osu! session is only ever sent to osu!'s own servers (`*.ppy.sh`).
-
-Sign-in happens in a plain Chrome window with its own profile inside `data\`. osu!'s login page uses a Cloudflare
-captcha that fails in automated browsers (even one with just a debugging port open), so nothing is attached to that
-window. When you're done, the app closes it normally and checks the profile with headless Chrome. Downloads reuse
-the same profile.
+rejected, and nothing is sent anywhere except the mirrors and osu! itself.
 
 ### Portable folder layout
 
@@ -164,7 +228,7 @@ osu! Beatmap Downloader\
 ├── osu! Beatmap Downloader.exe
 ├── README.txt
 ├── runtime\      the app itself (Python, Selenium, UI)
-├── data\         settings, saved sign-in (Chrome profile), download history, ChromeDriver
+├── data\         settings, download history, and the saved sign-in if you use the osu! step
 └── downloads\    .osz files waiting to be imported
 ```
 
@@ -172,7 +236,7 @@ Move the folder to move the app; delete it to uninstall.
 
 ## Run from source
 
-Requires Python 3.10+ and Google Chrome.
+Requires Python 3.10+. Google Chrome is optional (only the osu! step uses it).
 
 ```bash
 git clone https://github.com/AustinKol/osubeatmapdownloader.git
@@ -202,20 +266,22 @@ Double-click **`build.bat`**. It produces:
 | Path | What it is |
 |---|---|
 | [`app.py`](app.py) | Local web server and the actions behind every button |
-| [`osu_core.py`](osu_core.py) | osu! profile lists, headless Chrome downloader, osu!stable/lazer detection |
+| [`osu_api.py`](osu_api.py) | osu! profile lists, ID parsing and map lookups, over plain HTTP |
+| [`mirrors.py`](mirrors.py) | The mirror registry, the scheduler and the downloader |
+| [`osu_local.py`](osu_local.py) | Finding osu!stable/lazer, importing maps, process cleanup |
+| [`osu_browser.py`](osu_browser.py) | The optional osu! step: sign-in and downloads via Chrome |
 | [`web/index.html`](web/index.html) | The whole interface, in plain HTML, CSS and JavaScript |
-| [`build.bat`](build.bat) · [`tools/`](tools) · [`assets/`](assets) | Release packaging (PyInstaller) and the app icon |
-| [`start.bat`](start.bat) | Run-from-source launcher for Windows |
+| [`build.bat`](build.bat) · [`tools/`](tools) · [`assets/`](assets) | Release packaging (PyInstaller), the app icon, and the script that draws the diagram above |
 
 ## Contributing
 
-Issues and pull requests are welcome. If osu! changes its website and downloads stop working, the download-button
-lookup lives in `CLICK_DOWNLOAD_JS` in [`osu_core.py`](osu_core.py).
+Issues and pull requests are welcome. Adding a mirror is a few lines in `MIRRORS` at the top of
+[`mirrors.py`](mirrors.py): a download URL, whether it carries graveyard maps, and a sensible parallel-download cap.
 
 ## Disclaimer
 
-Not affiliated with or endorsed by ppy Pty Ltd. "osu!" is a trademark of ppy Pty Ltd. Please be considerate of
-osu!'s servers: keep the default delays and don't download more than you'll play.
+Not affiliated with or endorsed by ppy Pty Ltd. "osu!" is a trademark of ppy Pty Ltd. Beatmaps come from
+third-party community mirrors; please be considerate of their bandwidth and don't download more than you'll play.
 
 ## License
 
