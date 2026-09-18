@@ -17,3 +17,6 @@ downloads/
 # Old local Chrome profile from the original scripts
 osu_selenium_profile/
 release/
+
+# Internal test notes (kept locally, not published)
+docs/benchmark-internal.md
