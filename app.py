@@ -58,9 +58,9 @@ for _key in ("TEMP", "TMP"):  # remembered so osu! can be launched with the real
     os.environ[_key] = str(TEMP_DIR)
 PROFILE_DIR = DATA / "chrome-profile"  # only used by the optional osu! step
 CONFIG_FILE = DATA / "config.json"
-HISTORY_FILE = DATA / "history.json"
 INDEX = ROOT / "web" / "index.html"
 PREFERRED_PORT = 8765
+APP_ID = "osu-beatmap-downloader"
 
 DEFAULT_OPTS = {"no_video": True, "auto_open": False, "import_client": "stable", "show_browser": False,
                 "workers": 10, "delay": 5, "batch": 60, "rest": 15, "cooldown": 300, "timeout": 90}
@@ -88,10 +88,10 @@ class State:
         self.songs_dir = cfg.get("songs_dir", "")
         self.osu_paths = {"stable": "", "lazer": "", **cfg.get("osu_paths", {})}  # user-picked installs
         self.opts = {**DEFAULT_OPTS, **cfg.get("opts", {})}
-        self.mirrors = {**mirrors.DEFAULT_ENABLED, **cfg.get("mirrors", {})}
+        saved = {k: v for k, v in cfg.get("mirrors", {}).items() if k in mirrors.BY_KEY}  # drop retired mirrors
+        self.mirrors = {**mirrors.DEFAULT_ENABLED, **saved}
         self.last_user_query = cfg.get("last_user_query", "")
         self.user = cfg.get("user") if PROFILE_DIR.is_dir() else None  # confirmed when needed
-        self.history = set(_load(HISTORY_FILE, []))
         self.owned = set()
         self.queue = []
         self.logs = []
@@ -110,9 +110,6 @@ class State:
             "last_user_query": self.last_user_query,
         })
 
-    def save_history(self):
-        _save(HISTORY_FILE, sorted(self.history, key=int))
-
     # -- logging / queue
     def log(self, level, msg):
         with self.lock:
@@ -121,10 +118,7 @@ class State:
         print(f"[{level}] {msg}", flush=True)
 
     def on_item(self, item):
-        if item["status"] == "done":
-            with self.lock:
-                self.history.add(item["id"])
-                self.save_history()
+        pass  # the queue items are shared with the job, so the UI already sees every change
 
     def clients(self):
         """Which osu! installs exist (cached briefly, since this runs on every UI poll)."""
@@ -160,8 +154,6 @@ class State:
             return "have", "Already in your osu! Songs folder"
         if osu_api.find_osz(self.folder, sid):
             return "have", "Already in the download folder"
-        if sid in self.history:
-            return "have", "Downloaded in an earlier session"
         return "queued", ""
 
     def set_queue(self, items):
@@ -186,7 +178,7 @@ class State:
             return {
                 "user": self.user, "signing_in": bool(self.signing_in),
                 "folder": self.folder, "songs_dir": self.songs_dir, "opts": self.opts,
-                "last_user_query": self.last_user_query, "history_count": len(self.history),
+                "app": APP_ID, "last_user_query": self.last_user_query,
                 "clients": self.clients(), "mirrors": self.mirror_rows(),
                 "queue": self.queue, "counts": counts, "busy": self.busy,
                 "running": self.running(), "osu_running": self.osu_running(),
@@ -209,8 +201,8 @@ class State:
             rows.append({
                 "key": spec["key"], "name": spec["name"], "by": spec.get("by", ""),
                 "home": spec.get("home", ""), "about": spec.get("about", ""),
-                "coverage": spec["coverage"], "unavailable": spec.get("unavailable", ""),
-                "enabled": bool(self.mirrors.get(spec["key"])) and not spec.get("unavailable"),
+                "coverage": spec["coverage"],
+                "enabled": bool(self.mirrors.get(spec["key"])),
                 "inflight": 0, "cap": 0, "max_cap": spec["cap"], "speed": was.get("speed"),
                 "done": was.get("done", 0), "failed": was.get("failed", 0), "mb": was.get("mb", 0),
                 "waiting": 0, "quota_note": "", "last_error": was.get("last_error", ""),
@@ -306,8 +298,6 @@ def act_mirror(body):
     spec = mirrors.BY_KEY.get(key)
     if not spec:
         raise ValueError("Unknown mirror.")
-    if spec.get("unavailable") and enabled:
-        raise ValueError(spec["unavailable"])
     S.mirrors[key] = enabled
     S.save_config()
     if S.running():
@@ -321,7 +311,7 @@ def act_start(_):
         raise ValueError("Wait for the current task to finish first.")
     if not any(i["status"] == "queued" for i in S.queue):
         raise ValueError("Nothing to download: the queue is empty or you already have everything.")
-    if not any(v and not mirrors.BY_KEY[k].get("unavailable") for k, v in S.mirrors.items()):
+    if not any(v and k in mirrors.BY_KEY for k, v in S.mirrors.items()):
         raise ValueError("Turn on at least one mirror first.")
     for it in S.queue:
         it["tried"] = []
@@ -380,14 +370,6 @@ def act_clear_queue(_):
     if S.running() or S.osu_running():
         raise ValueError("Stop the download first.")
     S.queue = []
-
-
-def act_clear_history(_):
-    S.history = set()
-    S.save_history()
-    if not S.running():
-        S.set_queue(S.queue)
-    S.log("info", "Forgot download history.")
 
 
 # ---------------------------------------------------------------- the optional osu! step
@@ -551,7 +533,7 @@ def act_scan(_):
 ACTIONS = {
     "fetch": act_fetch, "paste": act_paste, "settings": act_settings, "mirror": act_mirror,
     "start": act_start, "pause": act_pause, "stop": act_stop, "retry": act_retry,
-    "toggle": act_toggle, "clear-queue": act_clear_queue, "clear-history": act_clear_history,
+    "toggle": act_toggle, "clear-queue": act_clear_queue,
     "check-missing": act_check_missing, "start-osu": act_start_osu,
     "login": act_login, "cancel-login": act_cancel_login, "finish-login": act_finish_login,
     "logout": act_logout, "open-all": act_open_all, "open-folder": act_open_folder,
@@ -594,8 +576,6 @@ class Handler(BaseHTTPRequestHandler):
             which = q.get("which", ["all"])[0]
             if which == "library":
                 ids = sorted(osu_api.scan_songs_folder(S.songs_dir), key=int) if S.songs_dir else []
-            elif which == "history":
-                ids = sorted(S.history, key=int)
             elif which == "missing":
                 ids = [i["id"] for i in missing_items()]
             else:
@@ -627,7 +607,8 @@ def already_running(port):
     try:
         req = urllib.request.Request(f"http://127.0.0.1:{port}/api/state?since=999999")
         with urllib.request.urlopen(req, timeout=1) as r:
-            return "history_count" in json.loads(r.read())
+            state = json.loads(r.read())
+            return state.get("app") == APP_ID or "history_count" in state  # (older versions)
     except (OSError, ValueError):
         return False
 

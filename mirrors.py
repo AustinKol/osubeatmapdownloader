@@ -72,23 +72,9 @@ MIRRORS = [
         "about": "China-hosted mirror. Complete-ish but slow from most places, so it is off by default "
                  "and used last.",
     },
-    {
-        "key": "nerinyan", "name": "nerinyan.moe", "by": "NeriNyan",
-        "home": "https://nerinyan.moe", "coverage": "all", "cap": 1, "default": False,
-        "url": "https://api.nerinyan.moe/d/{id}{novideo}", "novideo": "?nv=1", "video": "",
-        "unavailable": "Refused about half of our test requests, so it is disabled by default.",
-        "about": "Long-running mirror with good coverage, but it rate-limits hard.",
-    },
-    {
-        "key": "beatconnect", "name": "beatconnect.io", "by": "beatconnect",
-        "home": "https://beatconnect.io", "coverage": "all", "cap": 1, "default": False,
-        "url": "https://beatconnect.io/b/{id}/", "novideo": "", "video": "",
-        "unavailable": "Asks not to be used by scripts (\"Please use beatconnect.io to download beatmaps\").",
-        "about": "Well-known mirror with a web interface and search.",
-    },
 ]
 BY_KEY = {m["key"]: m for m in MIRRORS}
-DEFAULT_ENABLED = {m["key"]: bool(m.get("default")) and not m.get("unavailable") for m in MIRRORS}
+DEFAULT_ENABLED = {m["key"]: bool(m.get("default")) for m in MIRRORS}
 
 STALL_BYTES_PER_S = 50 * 1024     # a stream slower than this for STALL_SECONDS is abandoned
 STALL_SECONDS = 20
@@ -189,7 +175,7 @@ class MirrorState:
     def __init__(self, spec, enabled):
         self.spec = spec
         self.key = spec["key"]
-        self.enabled = enabled and not spec.get("unavailable")
+        self.enabled = bool(enabled)
         self.max_cap = spec["cap"]
         self.cap = min(2, self.max_cap)     # concurrency, tuned at runtime
         self.inflight = 0
@@ -261,7 +247,6 @@ class MirrorState:
         return {
             "key": self.key, "name": spec["name"], "by": spec.get("by", ""), "home": spec.get("home", ""),
             "about": spec.get("about", ""), "coverage": spec["coverage"],
-            "unavailable": spec.get("unavailable", ""),
             "enabled": self.enabled, "inflight": self.inflight, "cap": self.cap, "max_cap": self.max_cap,
             "speed": round(self.speed, 1) if self.speed else None,
             "done": self.ok, "failed": self.failed, "mb": round(self.bytes / 1e6, 1),
@@ -316,7 +301,7 @@ class MirrorDownloader:
 
     def set_mirror(self, key, enabled):
         m = self.by_key.get(key)
-        if m and not m.spec.get("unavailable"):
+        if m:
             m.enabled = enabled
             with self.lock:
                 self.lock.notify_all()

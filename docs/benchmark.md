@@ -46,11 +46,9 @@ graveyard, pending):
 |---|---|---|---|---|
 | mirror.nekoha.moe | 34/34 | 6/6 | 6/6 | full archive, claims ~1.3M sets |
 | osu.direct | 34/34 | 6/6 | 6/6 | full archive |
-| nerinyan.moe | 34/34 | 6/6 | 6/6 | full archive |
 | catboy.best | 33/34 | 5/6 | 6/6 | near-complete |
 | sayobot | 29/34 | 3/6 | 4/6 | partial |
 | osudl.org | 22/34 | 0/6 | 0/6 | ranked, approved and loved only (~61k sets) |
-| beatconnect.io | n/a | | | refuses scripted downloads |
 
 Coverage is not a strict hierarchy: catboy had maps nekoha lacked and vice versa, which is why the
 app tries another mirror on a 404 instead of giving up.
@@ -70,6 +68,4 @@ Rate limits:
 - **catboy.best** publishes `X-Ratelimit-*`: 1,200 units per window, about 20 per download, so
   roughly 60 downloads per window. The app eases off below 40 units left.
 - **osu.direct** publishes `RateLimit-*`: about 120 requests a minute.
-- **nerinyan.moe** refused half of a 20-request burst with `Retry-After: 10`.
-- **beatconnect.io** answers `429` with "Please use beatconnect.io to download beatmaps".
 - **nekoha** and **sayobot** advertise no limits; nekoha's site says "no ratelimit".

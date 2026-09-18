@@ -120,6 +120,10 @@ kbd { background: var(--panel); border: 1px solid var(--line); border-bottom-wid
   background: var(--text); color: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 13px; font-weight: 400;
   line-height: 1.5; text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,.3); cursor: default; }
 .tip:hover .tip-body, .tip:focus .tip-body, .tip:focus-within .tip-body { display: block; }
+/* mirror tooltips are shown in #floatTip instead, above everything, so the card can't clip or fade them */
+.tip.float .tip-body { display: none !important; }
+#floatTip { position: fixed; bottom: auto; left: 0; top: 0; z-index: 50; }
+#floatTip a { color: inherit; }
 
 /* mirrors */
 .mirrors { display: grid; gap: 8px; margin-top: 12px; }
@@ -127,10 +131,9 @@ kbd { background: var(--panel); border: 1px solid var(--line); border-bottom-wid
   padding: 9px 12px; background: var(--panel-2); overflow: hidden; }
 .mirror.on { border-color: color-mix(in srgb, var(--pink) 50%, transparent); }
 .mirror.off { opacity: .55; }
-.mirror.dead { opacity: .45; }
 .mirror input { accent-color: var(--pink); width: 16px; height: 16px; flex: none; }
 .mirror .who { min-width: 0; flex: 1; }
-.mirror .who b { display: block; font-size: 14px; }
+.mirror .who > b { display: block; font-size: 14px; }
 .mirror .who small { color: var(--dim); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mirror .live { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; flex: none;
   max-width: 42%; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
@@ -349,9 +352,7 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
           <input id="workersInput" type="number" min="1" max="16" data-opt="workers">
         </div>
       </div>
-      <div class="help">
-        <span id="historyInfo"></span>
-      </div>
+      <div class="help">Maps you already have are skipped: anything in your Songs folder or the download folder.</div>
     </div>
   </details>
 </section>
@@ -460,7 +461,7 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
 <script>
 const $ = id => document.getElementById(id);
 let S = null, logSince = 0, filter = 'all', wasRunning = false;
-let listKey = '', rowEls = new Map(), lastStatsHtml = null, lastMirrorHtml = null;
+let listKey = '', rowEls = new Map(), lastStatsHtml = null;
 
 const STATUS = {
   queued: 'Queued', downloading: 'Downloading', done: 'Done', failed: 'Failed',
@@ -548,36 +549,78 @@ function fmtTime(sec) {
 }
 
 // ---------------------------------------------------------------- mirrors
+function mirrorCard(m) {
+  return `<div class="mirror" data-key="${esc(m.key)}">
+      <div class="dot"></div>
+      <input type="checkbox" onchange="act('mirror', {key: '${esc(m.key)}', enabled: this.checked})" aria-label="${esc(m.name)}">
+      <div class="who">
+        <b>${esc(m.name)}
+          <i class="tip float" tabindex="0" aria-label="About ${esc(m.name)}">i
+            <span class="tip-body">${esc(m.about)}
+              ${m.by ? `<br><br>Run by <b>${esc(m.by)}</b>.` : ''}
+              ${m.home ? `<br><a href="${esc(m.home)}" target="_blank" rel="noopener">${esc(m.home)}</a>` : ''}
+            </span>
+          </i>
+        </b>
+        <small>${esc(m.about)}</small>
+      </div>
+      <div class="live"></div>
+    </div>`;
+}
+
+let mirrorKeys = '';
 function renderMirrors() {
-  const html = S.mirrors.map(m => {
-    const cls = m.unavailable ? 'dead' : m.enabled ? (m.inflight ? 'mirror on busy' : (m.waiting ? 'mirror on hold' : 'mirror on')) : 'mirror off';
+  const list = $('mirrorList');
+  const keys = S.mirrors.map(m => m.key).join();
+  if (keys !== mirrorKeys) {            // build the cards once; after that only their live parts change
+    list.innerHTML = S.mirrors.map(mirrorCard).join('');
+    mirrorKeys = keys;
+  }
+  for (const m of S.mirrors) {
+    const card = list.querySelector(`[data-key="${m.key}"]`);
+    const cls = 'mirror ' + (m.enabled ? (m.inflight ? 'on busy' : m.waiting ? 'on hold' : 'on') : 'off');
+    if (card.className !== cls) card.className = cls;
+    const box = card.querySelector('input');
+    if (box.checked !== m.enabled) box.checked = m.enabled;
     const live = S.running && m.enabled
       ? (m.waiting ? `<span class="waiting">waiting ${m.waiting}s</span>`
         : `${m.inflight}/${m.cap}${m.speed ? ` · <b>${m.speed} MB/s</b>` : ''}${m.done ? ` · ${m.done}` : ''}`)
       : (m.coverage === 'ranked' ? 'ranked & loved only' : 'full archive');
-    return `<div class="${m.unavailable ? 'mirror dead' : cls}">
-      <div class="dot"></div>
-      <input type="checkbox" ${m.enabled ? 'checked' : ''} ${m.unavailable ? 'disabled' : ''}
-             onchange="act('mirror', {key: '${m.key}', enabled: this.checked})" aria-label="${esc(m.name)}">
-      <div class="who">
-        <b>${esc(m.name)}
-          <i class="tip" tabindex="0" aria-label="About ${esc(m.name)}">i
-            <span class="tip-body" role="tooltip">${esc(m.about)}
-              ${m.by ? `<br><br>Run by <b>${esc(m.by)}</b>.` : ''}
-              ${m.home ? `<br><a href="${esc(m.home)}" target="_blank" rel="noopener">${esc(m.home)}</a>` : ''}
-              ${m.unavailable ? `<br><br><b>Disabled:</b> ${esc(m.unavailable)}` : ''}
-            </span>
-          </i>
-        </b>
-        <small>${m.unavailable ? esc(m.unavailable) : esc(m.about)}</small>
-      </div>
-      <div class="live">${live}</div>
-    </div>`;
-  }).join('');
-  if (html !== lastMirrorHtml) $('mirrorList').innerHTML = lastMirrorHtml = html;
+    const liveEl = card.querySelector('.live');
+    if (liveEl.dataset.v !== live) { liveEl.innerHTML = live; liveEl.dataset.v = live; }
+  }
   const on = S.mirrors.filter(m => m.enabled);
   $('mirrorsSummary').textContent = on.length ? `· ${on.map(m => m.name).join(', ')}` : '· none enabled';
 }
+
+// Mirror tooltips float at page level, positioned from their icon and kept on screen.
+const floatTip = Object.assign(document.createElement('div'), { id: 'floatTip', className: 'tip-body' });
+floatTip.setAttribute('role', 'tooltip');
+document.body.appendChild(floatTip);
+let tipTimer = null;
+function showTip(icon) {
+  clearTimeout(tipTimer);
+  floatTip.innerHTML = icon.querySelector('.tip-body').innerHTML;
+  floatTip.style.display = 'block';
+  const r = icon.getBoundingClientRect(), w = floatTip.offsetWidth, h = floatTip.offsetHeight;
+  floatTip.style.left = Math.max(8, Math.min(r.left - 12, innerWidth - w - 8)) + 'px';
+  floatTip.style.top = (r.top - h - 8 >= 8 ? r.top - h - 8 : r.bottom + 8) + 'px';
+}
+function hideTip(delay = 150) {
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => { floatTip.style.display = 'none'; }, delay);
+}
+$('mirrorList').addEventListener('mouseover', e => { const t = e.target.closest('.tip.float'); if (t) showTip(t); });
+$('mirrorList').addEventListener('mouseout', e => {
+  const t = e.target.closest('.tip.float');
+  if (t && !t.contains(e.relatedTarget)) hideTip();
+});
+$('mirrorList').addEventListener('focusin', e => { const t = e.target.closest('.tip.float'); if (t) showTip(t); });
+$('mirrorList').addEventListener('focusout', () => hideTip());
+floatTip.addEventListener('mouseenter', () => clearTimeout(tipTimer));   // so the link inside can be clicked
+floatTip.addEventListener('mouseleave', () => hideTip());
+addEventListener('scroll', () => hideTip(0));   // page scroll only: the queue list scrolls itself while downloading
+addEventListener('keydown', e => { if (e.key === 'Escape') hideTip(0); });
 
 // ---------------------------------------------------------------- queue list
 function rowContent(i) {
@@ -658,9 +701,6 @@ function render() {
       + ` · <button class="linkbtn" onclick="event.preventDefault(); locate('${c}')">${path ? 'Change' : 'Locate…'}</button>`;
   }
   $('exportLib').classList.toggle('hidden', !S.songs_dir);
-  $('historyInfo').innerHTML = S.history_count
-    ? `This app remembers ${S.history_count} maps you've downloaded and skips them. <button class="linkbtn" onclick="if(confirm('Forget download history?')) act('clear-history')">Forget</button> · <a href="/api/export?which=history">Export</a>`
-    : 'Maps you already have are skipped: anything in the download folder, your Songs folder, or downloaded before.';
   $('fetchBtn').disabled = !!S.busy || busy;
   const hasQueue = S.queue.length > 0;
   $('n1').classList.toggle('ok', hasQueue); $('n1').textContent = hasQueue ? '✓' : '1';

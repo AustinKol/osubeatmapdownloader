@@ -18,7 +18,7 @@ from osu.ppy.sh. That optional step is the only part that needs Google Chrome.
 Everything the app creates stays in this folder:
 
   downloads\   beatmaps (.osz) waiting to be imported into osu!
-  data\        your settings, download history, and the saved osu! sign-in
+  data\        your settings and the saved osu! sign-in
                if you use the optional step
   runtime\     the app's own files - don't touch
 

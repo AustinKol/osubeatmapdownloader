@@ -45,7 +45,7 @@ So far, this is still the best way that I know of to recover lost beatmaps folde
 - **Fast.** Downloads run from several mirrors at once and the app tunes itself as it goes. A real 1,000-map library took **2.5 minutes** in testing (7.3 GB, about 49 MB/s on a 500 Mbit line), against roughly 5 hours through osu! itself. See [the benchmark](docs/benchmark.md).
 - **No account, no browser.** The main flow is plain HTTP. Chrome is only involved if you opt into the final osu! step.
 - **Pick your mirrors.** Turn each one on or off, with a note on who runs it and what it covers.
-- **Skips what you already have.** Maps in your osu!stable `Songs` folder, in the download folder, or downloaded in an earlier session.
+- **Skips what you already have.** Anything already in your osu!stable `Songs` folder or the download folder. Delete a map and it can be downloaded again.
 - **One-click import** into **osu!stable** or **osu!lazer**, or automatically as each map finishes.
 - **Nothing is lost.** Maps no mirror has are checked against osu! and sorted into "still downloadable" and "gone for good".
 - **Portable.** Unzip and run. Settings, downloads and everything else stay inside the app's folder.
@@ -60,52 +60,14 @@ So far, this is still the best way that I know of to recover lost beatmaps folde
 </picture>
 </div>
 
-Mirrors are run by volunteers and no two behave alike: they differ in coverage, in speed, in what limits they
-publish, and all of that changes minute to minute. Pulling a thousand maps quickly *without* leaning on any one
-host is therefore a scheduling problem, and solving it properly is the part of this app I'm most happy with.
-The app treats every enabled mirror as one pool and decides, at the instant a slot frees up, who should serve the
-next map. It all lives in [`mirrors.py`](mirrors.py), and the numbers below are measured, not guessed
-(see [the benchmark](docs/benchmark.md)).
+Rather than trying mirrors one after another, the app runs them all as one pool and picks the best
+mirror for each map the moment a download slot frees up: by measured speed and success rate, with
+each mirror's parallel downloads tuning themselves up and down. When a mirror says *slow down*, only
+that mirror steps aside and the map moves to another one straight away, so the queue never pauses.
+Every file is checked to be the right beatmap before it counts. On a real 1,000-map library that
+adds up to **2.5 minutes at about 49 MB/s**, with nothing missed.
 
-**Two classes of map, filled like water.** Ranked, approved and loved maps can come from any mirror; graveyard,
-pending and unknown maps need a full-archive mirror, so the ranked-only mirrors are never even asked for them.
-That makes the full archives a scarce resource. When a full-archive slot opens it takes an unknown-status map only
-while `unknown_left / full_archive_capacity >= ranked_left / total_capacity`, and otherwise helps with ranked maps.
-Both classes then run dry at about the same moment, instead of ending with one mirror grinding through a tail of
-graveyard maps alone.
-
-**Mirrors are chosen on merit, not on a hard-coded ranking.** Each mirror carries a score of
-`recent MB/s (EWMA) x success rate x free slots`, damped as it approaches a quota it has published, with a little
-jitter so ten workers don't stampede the same host. A mirror having a bad minute quietly loses work; when it
-recovers, its score climbs back on its own. This is why the priority list doesn't need to be right: the run measures
-it for you. In testing, the fastest mirror ended up doing 72% of a 1,000-map list without ever being told to.
-
-**Concurrency tunes itself.** Every mirror starts at 2 parallel downloads, gains one after five clean successes up
-to a deliberately modest cap, and halves on a refusal: additive increase, multiplicative decrease, the same feedback
-shape TCP uses to find a link's capacity. The pool settles near what each host is actually happy to give, which
-during the benchmark drifted between 1 and 5 streams per mirror.
-
-**A refusal costs no time at all.** A `429` (or a `403`, which usually just means too many connections) parks *that
-mirror* until the moment named by its `Retry-After` or rate-limit headers, and the map it was carrying is handed to
-another mirror in the same breath. Nothing sleeps, nothing retries in place, and the queue never stops moving.
-catboy, for example, serves about 60 maps, sits out roughly 50 seconds, and rejoins by itself; the run doesn't
-notice. A `404` is information rather than failure: that mirror doesn't have the map, so it's remembered and the map
-is tried elsewhere.
-
-**Slow streams are cut, and the finish is raced.** A download under 50 KB/s for 20 seconds is abandoned and
-re-dispatched. A map still running after 25 seconds may be raced on a second mirror, with the first complete file
-winning and the loser's partial file discarded. Duplicates are impossible because the race is decided on the
-beatmapset id, not the filename.
-
-**Nothing counts until it's verified.** A finished file must be a real zip, hold at least one `.osu` difficulty, and
-that difficulty's `BeatmapSetID` must match the map we asked for. Anything else is deleted, the mirror takes a short
-backoff, the map goes to another mirror, and the activity log gets one line quoting the first ~140 characters of
-whatever arrived (nearly always a rate-limit page). The app also checks the drive has room before a run starts,
-since 1,000 maps is about 7 GB.
-
-The result, on a real 1,000-map library: **2.5 minutes, 7.3 GB, about 49 MB/s**, no maps missed, no invalid files,
-and seven mirror failures that were all recovered elsewhere without me noticing. Through osu! itself, the same list
-takes roughly five hours.
+**[How it works in depth →](docs/load-balancer.md)** covers the formulas, the code, and every constant.
 
 ## Download
 
@@ -183,8 +145,6 @@ The app collects those and can check them against osu! itself, which needs no ac
 | [mirror.nekoha.moe](https://mirror.nekoha.moe) | Nekoha | Full archive (~1.3M sets) | Slower per download, so it runs several at once |
 | [osu.direct](https://osu.direct) | osu.direct | Full archive | Dependable, about 120 requests a minute |
 | [sayobot](https://osu.sayobot.cn) | SayoBot | Mostly complete | Off by default: slow from outside Asia |
-| nerinyan.moe | NeriNyan | Full archive | Disabled: refused about half of our test requests |
-| beatconnect.io | beatconnect | Full archive | Disabled: asks not to be used by scripts |
 
 Please be kind to them: they're volunteers paying for bandwidth. The defaults are deliberately modest, and
 [docs/benchmark.md](docs/benchmark.md) records what each mirror covered, how fast it was, and how it handles limits.
@@ -228,7 +188,7 @@ osu! Beatmap Downloader\
 ├── osu! Beatmap Downloader.exe
 ├── README.txt
 ├── runtime\      the app itself (Python, Selenium, UI)
-├── data\         settings, download history, and the saved sign-in if you use the osu! step
+├── data\         settings and the saved sign-in if you use the osu! step
 └── downloads\    .osz files waiting to be imported
 ```
 
