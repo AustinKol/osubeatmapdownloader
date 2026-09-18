@@ -20,8 +20,8 @@
 <text x="350" y="159" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">behind, so both finish together</text>
 <rect x="336" y="182" width="268" height="68" rx="9" fill="#2a2530" stroke="#3a3342" stroke-width="1.5"/>
 <text x="350" y="204" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#ff66aa" text-anchor="start">Merit order</text>
-<text x="350" y="221" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">measured MB/s x success rate,</text>
-<text x="350" y="235" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">minus closeness to a published quota</text>
+<text x="350" y="221" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">measured MB/s x success rate</text>
+<text x="350" y="235" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">x free slots, no fixed ranking</text>
 <rect x="336" y="258" width="268" height="68" rx="9" fill="#2a2530" stroke="#3a3342" stroke-width="1.5"/>
 <text x="350" y="280" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#ff66aa" text-anchor="start">Self tuning</text>
 <text x="350" y="297" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a79fb0" text-anchor="start">+1 stream after 5 clean downloads,</text>

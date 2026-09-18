@@ -74,7 +74,7 @@ def svg(theme):
     box(320, 76, 300, 330)
     rules = [
         ("Water filling", "serve whichever class is furthest", "behind, so both finish together"),
-        ("Merit order", "measured MB/s x success rate,", "minus closeness to a published quota"),
+        ("Merit order", "measured MB/s x success rate", "x free slots, no fixed ranking"),
         ("Self tuning", "+1 stream after 5 clean downloads,", "halved on a refusal (AIMD)"),
         ("Instant failover", "429/403 parks that mirror only;", "404 means try the next one"),
     ]
