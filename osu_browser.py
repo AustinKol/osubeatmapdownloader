@@ -1,122 +1,19 @@
-"""osu! beatmap fetching + headless Chrome downloading.
+"""The optional osu.ppy.sh step: signing in and downloading with Chrome.
 
-Everything that talks to osu.ppy.sh lives here; app.py only wires it to the UI.
+Nothing here runs in the main flow. It is used only for maps that no mirror had, and only
+after the user chooses to sign in.
 """
 import json
 import os
-import re
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
-OSU = "https://osu.ppy.sh"
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) osu-beatmap-downloader"
+from osu_api import OSU, UA, find_osz
+from osu_local import CREATE_BREAKAWAY_FROM_JOB, _child_env, friendly_error, import_into_osu
 
-
-# ---------------------------------------------------------------- helpers
-
-def parse_ids(text):
-    """Pull beatmapset IDs out of pasted text: bare IDs, /beatmapsets/ links, /s/ links."""
-    ids, seen = [], set()
-    for line in (text or "").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        m = (re.search(r"beatmapsets/(\d+)", line)
-             or re.search(r"/s/(\d+)", line)
-             or re.match(r"(\d+)", line))
-        if m and m.group(1) not in seen:
-            seen.add(m.group(1))
-            ids.append(m.group(1))
-    return ids
-
-
-def _get_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode("utf-8"))
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):
-        return None
-
-
-def resolve_user_id(user):
-    """Turn an ID, profile URL, or username into a numeric user ID."""
-    user = (user or "").strip()
-    m = re.search(r"users/(\d+)", user) or re.fullmatch(r"(\d+)", user)
-    if m:
-        return m.group(1)
-    m = re.search(r"users/([^/?#]+)", user)
-    name = urllib.parse.unquote(m.group(1)) if m else user
-    if not name:
-        raise ValueError("Enter a username, profile link or user ID.")
-    opener = urllib.request.build_opener(_NoRedirect)
-    req = urllib.request.Request(f"{OSU}/users/{urllib.parse.quote(name)}", headers={"User-Agent": UA})
-    try:
-        opener.open(req, timeout=30)
-    except urllib.error.HTTPError as e:
-        m = re.search(r"/users/(\d+)", e.headers.get("Location", ""))
-        if e.code in (301, 302) and m:
-            return m.group(1)
-    raise ValueError(f"Couldn't find an osu! user called “{name}”.")
-
-
-def fetch_user_maps(user, kind, limit, on_progress=None):
-    """Return [{id, title, artist, cover}] from a user's profile list, deduplicated."""
-    uid = resolve_user_id(user)
-    out, seen, offset = [], set(), 0
-    while len(out) < limit:
-        page = _get_json(f"{OSU}/users/{uid}/beatmapsets/{kind}?offset={offset}&limit=100")
-        if not page:
-            break
-        for item in page:
-            s = item["beatmapset"] if kind == "most_played" else item
-            sid = str(s["id"])
-            if sid in seen:
-                continue
-            seen.add(sid)
-            out.append({"id": sid, "title": s.get("title", ""), "artist": s.get("artist", ""),
-                        "cover": (s.get("covers") or {}).get("list", "")})
-            if len(out) >= limit:
-                break
-        offset += len(page)
-        if on_progress:
-            on_progress(len(out))
-        if len(page) < 100:
-            break
-    return out
-
-
-def scan_songs_folder(path):
-    """Beatmapset IDs present in an osu!stable Songs folder (folders are named '<id> Artist - Title')."""
-    ids = set()
-    p = Path(path)
-    if not p.is_dir():
-        raise ValueError("That Songs folder doesn't exist.")
-    for entry in os.scandir(p):
-        m = re.match(r"(\d+)\s", entry.name)
-        if m:
-            ids.add(m.group(1))
-    return ids
-
-
-def find_osz(folder, sid):
-    """Finished .osz for this set in the folder, if any (osu names them '<id> Artist - Title.osz')."""
-    try:
-        for entry in os.scandir(folder):
-            if entry.name.endswith(".osz") and re.match(rf"{sid}(\D|$)", entry.name):
-                return entry.path
-    except FileNotFoundError:
-        pass
-    return None
-
-
-# ---------------------------------------------------------------- browser
 
 def make_driver(download_dir=None, headless=True, profile_dir=None):
     from selenium import webdriver  # imported lazily so the UI starts instantly
@@ -317,8 +214,8 @@ def _resume_time(refused_at, batch_start):
             return t
 
 
-class Downloader:
-    """Runs a download queue on a background thread and reports through callbacks."""
+class BrowserDownloader:
+    """Downloads the leftover maps from osu.ppy.sh in a hidden Chrome, respecting its hourly limit."""
 
     def __init__(self, items, profile_dir, folder, opts, emit, log):
         self.items = items          # list of dicts; this class mutates item["status"]
@@ -562,174 +459,3 @@ class Downloader:
         return None, "Timed out waiting for the download."
 
 
-# ---------------------------------------------------------------- process housekeeping
-
-CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-
-
-def close_chrome_with_app():
-    """Put this process in a Windows job so every Chrome it starts dies with it.
-
-    Without this, closing the console window leaves headless Chrome running, and that
-    Chrome keeps the profile locked so the next launch can't start a browser.
-    Programs that should outlive the app (osu!) are started with CREATE_BREAKAWAY_FROM_JOB.
-    """
-    if os.name != "nt":
-        return None
-    import ctypes
-    from ctypes import wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.CreateJobObjectW.restype = wintypes.HANDLE
-    k32.GetCurrentProcess.restype = wintypes.HANDLE
-    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-
-    class Basic(ctypes.Structure):
-        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
-                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
-                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
-                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
-                    ("SchedulingClass", wintypes.DWORD)]
-
-    class Extended(ctypes.Structure):
-        _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_uint64 * 6),
-                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
-                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
-
-    job = k32.CreateJobObjectW(None, None)
-    info = Extended()
-    info.BasicLimitInformation.LimitFlags = 0x2000 | 0x800  # KILL_ON_JOB_CLOSE | BREAKAWAY_OK
-    if not (job and k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
-            and k32.AssignProcessToJobObject(job, k32.GetCurrentProcess())):
-        return None
-    return job  # the caller must keep this handle alive for the life of the app
-
-
-def close_leftover_chrome(profile_dir):
-    """Stop any Chrome still using our profile (e.g. from a copy of the app that crashed)."""
-    lock = Path(profile_dir) / "lockfile"
-    if os.name != "nt" or not lock.exists():
-        return 0
-    try:
-        lock.unlink()  # succeeds only if no Chrome has the profile open
-        return 0
-    except OSError:
-        pass
-    import subprocess
-    needle = str(Path(profile_dir)).replace("'", "''")
-    script = ("$n = 0; Get-CimInstance Win32_Process -Filter \"Name='chrome.exe' OR Name='chromedriver.exe'\" | "
-              f"Where-Object {{ $_.CommandLine -and $_.CommandLine.Contains('{needle}') }} | "
-              "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $n++ }; $n")
-    out = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
-                         timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
-    time.sleep(1)
-    try:
-        return int(out.stdout.strip() or 0)
-    except ValueError:
-        return 0
-
-
-def friendly_error(e):
-    """A readable one-line message for an exception (Selenium's include whole stack traces)."""
-    text = str(e).strip()
-    if "session not created" in text and ("crashed" in text or "DevToolsActivePort" in text):
-        return ("Chrome couldn't start. Another copy of this app (or a leftover Chrome) may still be using "
-                "its Chrome profile. Close other copies and try again.")
-    if "session not created" in text and "version" in text.lower():
-        return "Chrome couldn't start: ChromeDriver doesn't match your Chrome. Update Chrome and try again."
-    first = text.removeprefix("Message: ").splitlines()[0] if text else type(e).__name__
-    return first
-
-
-# ---------------------------------------------------------------- osu! clients
-
-def _child_env():
-    """Environment for programs we launch: undo app.py's TEMP redirect so osu! uses the real one."""
-    env = dict(os.environ)
-    for key in ("TEMP", "TMP"):
-        if env.get(f"OBD_ORIGINAL_{key}"):
-            env[key] = env[f"OBD_ORIGINAL_{key}"]
-    return env
-
-
-def _association_exe(prog_id):
-    """Executable registered for a file type, e.g. 'osustable.File.osz' → C:\\...\\osu!.exe."""
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, rf"{prog_id}\shell\open\command") as key:
-            command = winreg.QueryValue(key, None)
-    except (ImportError, OSError):
-        return None
-    m = re.match(r'\s*"([^"]+)"|\s*(\S+)', command or "")
-    return (m.group(1) or m.group(2)) if m else None
-
-
-def _is_lazer(exe):
-    return (Path(exe).parent / "osu.Game.dll").exists()
-
-
-def _exe_in(folder):
-    """osu!.exe inside a folder the user picked (lazer's install root keeps it under current/)."""
-    if not folder:
-        return []
-    p = Path(folder)
-    if p.suffix.lower() == ".exe":
-        return [p]
-    return [p / "osu!.exe", p / "current" / "osu!.exe"]
-
-
-def osu_in_folder(client, folder):
-    """The osu!stable/lazer exe inside a user-picked folder, or None."""
-    for exe in _exe_in(folder):
-        if exe.is_file() and _is_lazer(exe) == (client == "lazer"):
-            return str(exe)
-    return None
-
-
-def find_osu(client, songs_dir="", custom=""):
-    """Path to the osu!stable or osu!lazer executable, or None if it isn't installed.
-
-    Installs can live anywhere, so check (in order) the folder the user picked, the folder
-    above their Songs folder, the program Windows opens .osz files with, and the default paths.
-    """
-    local = Path(os.environ.get("LOCALAPPDATA", Path.home()))
-    if client == "stable":
-        candidates = [*_exe_in(custom),
-                      Path(songs_dir).parent / "osu!.exe" if songs_dir else None,
-                      _association_exe("osustable.File.osz"),
-                      _association_exe("osu!"),
-                      local / "osu!" / "osu!.exe"]
-    else:
-        candidates = [*_exe_in(custom),
-                      _association_exe("osu.File.osz"),
-                      local / "osulazer" / "current" / "osu!.exe",
-                      local / "osulazer" / "osu!.exe"]
-    for exe in candidates:
-        if exe and Path(exe).is_file() and _is_lazer(exe) == (client == "lazer"):
-            return str(exe)
-    return None
-
-
-def import_into_osu(path, client, songs_dir="", custom_paths=None):
-    """Open an .osz with the chosen client (the other one if it's missing). Returns what was used."""
-    other = "lazer" if client == "stable" else "stable"
-    for c in (client, other):
-        exe = find_osu(c, songs_dir, (custom_paths or {}).get(c, ""))
-        if exe:
-            import subprocess
-            flags = CREATE_BREAKAWAY_FROM_JOB if os.name == "nt" else 0  # osu! keeps running after the app
-            subprocess.Popen([exe, str(path)], env=_child_env(), cwd=str(Path(exe).parent), creationflags=flags)
-            return c
-    open_file(path)
-    return "default"
-
-
-def open_file(path):
-    """Hand a file or folder to the OS (.osz files open in whichever osu! owns the file type)."""
-    import subprocess, sys
-    if os.name == "nt":
-        # explorer hands the file to its default app from the desktop shell, so that app
-        # doesn't inherit our redirected TEMP the way os.startfile's children would
-        subprocess.Popen(["explorer", str(Path(path))], creationflags=CREATE_BREAKAWAY_FROM_JOB)
-    else:
-        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)])

@@ -121,6 +121,25 @@ kbd { background: var(--panel); border: 1px solid var(--line); border-bottom-wid
   line-height: 1.5; text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,.3); cursor: default; }
 .tip:hover .tip-body, .tip:focus .tip-body, .tip:focus-within .tip-body { display: block; }
 
+/* mirrors */
+.mirrors { display: grid; gap: 8px; margin-top: 12px; }
+.mirror { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 12px; background: var(--panel-2); overflow: hidden; }
+.mirror.on { border-color: color-mix(in srgb, var(--pink) 50%, transparent); }
+.mirror.off { opacity: .55; }
+.mirror.dead { opacity: .45; }
+.mirror input { accent-color: var(--pink); width: 16px; height: 16px; flex: none; }
+.mirror .who { min-width: 0; flex: 1; }
+.mirror .who b { display: block; font-size: 14px; }
+.mirror .who small { color: var(--dim); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mirror .live { font-size: 12px; color: var(--muted); text-align: right; white-space: nowrap; flex: none;
+  max-width: 42%; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.mirror .live b { color: var(--text); }
+.mirror .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+.mirror.busy .dot { background: var(--pink); animation: pulse 1s infinite; }
+.mirror.hold .dot { background: var(--yellow); }
+@keyframes pulse { 50% { opacity: .35; } }
+
 .notice { background: var(--pink-soft); border: 1px solid color-mix(in srgb, var(--pink) 35%, transparent);
   border-radius: 10px; padding: 10px 14px; font-size: 13.5px; color: var(--muted); margin: -4px 0 16px; }
 .notice b { color: var(--text); }
@@ -152,7 +171,8 @@ kbd { background: var(--panel); border: 1px solid var(--line); border-bottom-wid
 .s-downloading { background: var(--pink-soft); }
 .s-downloading .pill { background: var(--pink); color: #fff; }
 .s-done .pill { background: rgba(111,220,140,.15); color: var(--green); }
-.s-failed .pill { background: rgba(255,107,122,.15); color: var(--red); }
+.s-failed .pill, .s-gone .pill { background: rgba(255,107,122,.15); color: var(--red); }
+.s-not_on_mirrors .pill, .s-osu_only .pill { background: rgba(255,209,102,.15); color: var(--yellow); }
 .s-have .pill, .s-skipped .pill, .s-cancelled .pill { background: var(--panel-2); color: var(--dim); }
 .s-have .meta, .s-skipped .meta { opacity: .6; }
 .empty { padding: 36px 16px; text-align: center; color: var(--dim); }
@@ -180,6 +200,7 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
   .card { padding: 16px; }
   .item img { width: 48px; height: 34px; }
   .btn.big { width: 100%; justify-content: center; }
+  .mirror .live { display: none; }
 }
 </style>
 </head>
@@ -190,7 +211,7 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
   <svg class="logo" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="var(--pink)"/><circle cx="50" cy="50" r="30" fill="none" stroke="#fff" stroke-width="8"/><path d="M50 36v24m-10-9 10 10 10-10" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
   <div>
     <h1>osu! Beatmap Downloader</h1>
-    <p>Bulk-download beatmaps in the background, then import them into osu! in one click.</p>
+    <p>Bulk-download beatmaps from community mirrors, then import them into osu! in one click.</p>
   </div>
   <div class="grow"></div>
   <div id="userChip" class="chip-user hidden">
@@ -203,47 +224,14 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
 <div class="official" role="note">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Zm-1.2 14.2-3.5-3.5 1.4-1.4 2.1 2.1 4.9-4.9 1.4 1.4-6.3 6.3Z"/></svg>
   <div>
-    <b>Every beatmap is downloaded straight from osu.ppy.sh</b>, the official osu! website, using your own account.
-    No third-party mirrors or other download sites are used.
+    <b>No osu! account needed.</b> Beatmaps come from community mirrors, several at once, so there's no
+    download limit to wait out. Maps no mirror has can be fetched from osu.ppy.sh afterwards, if you want them.
   </div>
 </div>
 
 <!-- STEP 1 -->
 <section class="card" id="step1">
-  <h2><span class="n" id="n1">1</span> Sign in to osu!</h2>
-  <div id="loginForm">
-    <p class="sub">osu! only lets signed-in players download maps. Sign in once and the app remembers it on this computer.</p>
-    <div class="row" style="align-items:center">
-      <button class="btn primary big" id="loginBtn" onclick="act('login')">Sign in with osu!</button>
-      <span class="hint">Opens a Chrome window with osu!'s own sign-in page.</span>
-    </div>
-    <details>
-      <summary>Is this safe?</summary>
-      <div class="help">
-        You sign in on <b>osu.ppy.sh</b> in a normal Chrome window, including any captcha or email code osu! asks for.
-        The app doesn't control that window or read what you type. When you're done it closes the window and checks
-        with osu! that you're signed in.
-        <br><br>
-        Your sign-in is kept in this app's <code>data</code> folder (it lasts about a month), so don't share that folder.
-        <b>Sign out</b> removes it. The app is <a href="https://github.com/AustinKol/osubeatmapdownloader" target="_blank" rel="noopener">open source</a>.
-      </div>
-    </details>
-  </div>
-  <div id="loginWaiting" class="hidden">
-    <p class="sub"><b>Sign in to osu! in the Chrome window that just opened</b> (including the captcha and any
-      email code). When you're signed in, click the button below, or just close that window.</p>
-    <div class="row" style="align-items:center">
-      <button class="btn primary big" id="finishLoginBtn" onclick="act('finish-login')">I've signed in</button>
-      <button class="btn" onclick="act('cancel-login')">Cancel</button>
-      <span class="hint">Can't see it? Check your taskbar for a new Chrome window.</span>
-    </div>
-  </div>
-  <p class="sub hidden" id="loginDone" style="margin:0">You're signed in. Downloads run in a hidden Chrome window using this sign-in.</p>
-</section>
-
-<!-- STEP 2 -->
-<section class="card" id="step2">
-  <h2><span class="n" id="n2">2</span> Choose beatmaps</h2>
+  <h2><span class="n" id="n1">1</span> Choose beatmaps</h2>
   <p class="sub">Grab maps from any player's profile, or paste a list a friend shared with you.</p>
 
   <div class="tabs" role="tablist">
@@ -255,17 +243,17 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
     <div class="row">
       <div class="grow">
         <label class="f" for="userQuery">Player</label>
-        <input id="userQuery" type="text" placeholder="Leave empty for yourself, or type a username / profile link">
+        <input id="userQuery" type="text" placeholder="Username, profile link or user ID">
       </div>
       <div style="width:170px">
         <div class="flabel">
           <label class="f" for="kind">List</label>
           <i class="tip" tabindex="0" aria-label="About the Most played list">i
             <span class="tip-body" role="tooltip">
-              <b>Most played</b> includes every beatmap you've played at least once, not just your favourites.
+              <b>Most played</b> includes every beatmap that player has played at least once, not just their favourites.
               <br><br>
-              Choose it to <b>recover a lost beatmap collection</b>: leave Player empty and set <b>How many maps?</b> high
-              enough to cover your whole library.
+              Choose it to <b>recover a lost beatmap collection</b>: set <b>How many maps?</b> high enough to cover
+              the whole library.
             </span>
           </i>
         </div>
@@ -294,6 +282,13 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
       <label class="btn">Open .txt file…<input type="file" accept=".txt,text/plain" hidden onchange="loadFile(this)"></label>
     </div>
   </div>
+
+  <details id="mirrorsBox">
+    <summary>Mirrors <span class="hint" id="mirrorsSummary"></span></summary>
+    <p class="sub" style="margin:12px 0 0">Downloads are spread across every mirror you leave on. If one is busy or
+      doesn't have a map, the app moves straight to another, so nothing waits.</p>
+    <div class="mirrors" id="mirrorList"></div>
+  </details>
 
   <details>
     <summary>Folders & options</summary>
@@ -336,36 +331,35 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
         </div>
       </div>
       <div class="grid2">
-        <label class="check"><input type="checkbox" data-opt="no_video"><span>Skip videos<small>Smaller downloads</small></span></label>
+        <label class="check"><input type="checkbox" data-opt="no_video"><span>Skip videos<small>About 7x smaller downloads</small></span></label>
         <label class="check"><input type="checkbox" data-opt="auto_open"><span>Import as they finish<small>Sends each map to osu! right away</small></span></label>
-        <label class="check"><input type="checkbox" data-opt="show_browser"><span>Show the browser<small>For troubleshooting</small></span></label>
       </div>
       <div class="grid2">
-        <div><label class="f">Seconds between maps</label><input type="number" min="0" step="0.5" data-opt="delay"></div>
-        <div><label class="f">Rest after every … maps</label><input type="number" min="1" data-opt="batch"></div>
-        <div><label class="f">Rest length (s)</label><input type="number" min="0" data-opt="rest"></div>
-        <div><label class="f">Pause after 3 failures in a row (s)</label><input type="number" min="0" data-opt="cooldown"></div>
+        <div>
+          <div class="flabel">
+            <label class="f" for="workersInput">Downloads at once</label>
+            <i class="tip" tabindex="0" aria-label="About parallel downloads">i
+              <span class="tip-body" role="tooltip">
+                How many beatmaps download at the same time across all mirrors. Each mirror also has its own
+                limit, which the app tunes while it runs. 10 suits a fast connection; lower it if you're
+                gaming or streaming at the same time.
+              </span>
+            </i>
+          </div>
+          <input id="workersInput" type="number" min="1" max="16" data-opt="workers">
+        </div>
       </div>
       <div class="help">
-        <b>Missing some maps?</b> Turn on <i>Show explicit content</i> in your
-        <a href="https://osu.ppy.sh/home/account/edit" target="_blank" rel="noopener">osu! account settings</a>.
-        Otherwise, osu! hides the download button for those maps.
-        <br><span id="historyInfo"></span>
+        <span id="historyInfo"></span>
       </div>
     </div>
   </details>
 </section>
 
-<!-- STEP 3 -->
-<section class="card" id="step3">
-  <h2><span class="n" id="n3">3</span> Download</h2>
-  <p class="sub">Chrome runs invisibly in the background. Feel free to minimise this tab.</p>
-  <div class="notice">
-    <b>Heads-up: osu! allows about 200 beatmap downloads per hour</b> (more with osu!supporter).
-    Because every map comes from osu.ppy.sh, the app sticks to that limit.
-    When you reach it, the app waits and retries automatically after 5, 10, 20 and 25 minutes, then keeps going,
-    so big batches take roughly an hour per 200 maps. Just leave it running; nothing is skipped.
-  </div>
+<!-- STEP 2 -->
+<section class="card" id="step2">
+  <h2><span class="n" id="n2">2</span> Download</h2>
+  <p class="sub">Runs in the background. Feel free to minimise this tab.</p>
   <div class="row" style="align-items:center">
     <button class="btn primary big" id="startBtn" onclick="act('start')">Start downloading</button>
     <button class="btn big hidden" id="pauseBtn" onclick="act('pause')">Pause</button>
@@ -392,15 +386,71 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
     <button class="btn" onclick="api('open-folder', {which: 'downloads'})">Show folder</button>
     <a class="btn ghost" id="exportFailed" href="/api/export?which=failed">Save failed list</a>
   </div>
-
-  <details id="logBox">
-    <summary>Activity log</summary>
-    <div class="log" id="log"></div>
-  </details>
 </section>
 
+<!-- STEP 3 (only when mirrors came up short) -->
+<section class="card hidden" id="step3">
+  <h2><span class="n" id="n3">3</span> Maps the mirrors didn't have</h2>
+  <p class="sub" id="missingSub"></p>
+
+  <div id="missingCheck">
+    <div class="row" style="align-items:center">
+      <button class="btn primary" id="checkBtn" onclick="act('check-missing')">Check on osu!</button>
+      <span class="hint">Asks osu.ppy.sh which of them still exist. No sign-in needed for this.</span>
+    </div>
+  </div>
+
+  <div id="missingResult" class="hidden">
+    <div class="notice" id="missingSummary"></div>
+
+    <div id="osuSignIn">
+      <div class="row" style="align-items:center">
+        <button class="btn primary big" id="loginBtn" onclick="act('login')">Sign in with osu!</button>
+        <span class="hint">Opens a Chrome window with osu!'s own sign-in page.</span>
+      </div>
+      <details>
+        <summary>Is this safe?</summary>
+        <div class="help">
+          You sign in on <b>osu.ppy.sh</b> in a normal Chrome window, including any captcha or email code osu! asks for.
+          The app doesn't control that window or read what you type. When you're done it closes the window and checks
+          with osu! that you're signed in.
+          <br><br>
+          Your sign-in is kept in this app's <code>data</code> folder (it lasts about a month), so don't share that folder.
+          <b>Sign out</b> removes it. Google Chrome must be installed for this step only.
+        </div>
+      </details>
+    </div>
+
+    <div id="loginWaiting" class="hidden">
+      <p class="sub"><b>Sign in to osu! in the Chrome window that just opened</b> (including the captcha and any
+        email code). When you're signed in, click the button below, or just close that window.</p>
+      <div class="row" style="align-items:center">
+        <button class="btn primary big" id="finishLoginBtn" onclick="act('finish-login')">I've signed in</button>
+        <button class="btn" onclick="act('cancel-login')">Cancel</button>
+        <span class="hint">Can't see it? Check your taskbar for a new Chrome window.</span>
+      </div>
+    </div>
+
+    <div id="osuReady" class="hidden">
+      <div class="notice">
+        <b>osu! allows about 200 downloads per hour</b> (more with osu!supporter). The app waits and retries
+        automatically after 5, 10, 20 and 25 minutes, so this step can take a while. Nothing is skipped.
+      </div>
+      <div class="row" style="align-items:center">
+        <button class="btn primary big" id="osuStartBtn" onclick="act('start-osu')">Download from osu!</button>
+        <a class="btn ghost" href="/api/export?which=missing">Save this list</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<details id="logBox">
+  <summary>Activity log</summary>
+  <div class="log" id="log"></div>
+</details>
+
 <footer>
-  Not affiliated with ppy. Please be kind to osu!'s servers and keep the delays sensible.
+  Not affiliated with ppy. Beatmaps come from community mirrors: please be kind to them.
   · <a href="/api/export?which=all">Export queue</a>
 </footer>
 </div>
@@ -410,11 +460,12 @@ footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 30p
 <script>
 const $ = id => document.getElementById(id);
 let S = null, logSince = 0, filter = 'all', wasRunning = false;
-let listKey = '', rowEls = new Map(), lastStatsHtml = null;
+let listKey = '', rowEls = new Map(), lastStatsHtml = null, lastMirrorHtml = null;
 
 const STATUS = {
   queued: 'Queued', downloading: 'Downloading', done: 'Done', failed: 'Failed',
   have: 'Already have', skipped: 'Skipped', cancelled: 'Cancelled',
+  not_on_mirrors: 'Not on mirrors', osu_only: 'osu! only', gone: 'Unavailable',
 };
 
 async function api(name, body = {}) {
@@ -443,7 +494,6 @@ function tab(name) {
   $('tab-profile').classList.toggle('hidden', name !== 'profile');
   $('tab-list').classList.toggle('hidden', name !== 'list');
 }
-
 
 function fetchMaps() {
   act('fetch', {user: $('userQuery').value, kind: $('kind').value, limit: +$('limit').value});
@@ -491,15 +541,53 @@ $('userQuery').addEventListener('keydown', e => e.key === 'Enter' && fetchMaps()
 
 function setFilter(f) { filter = f; listKey = ''; render(); }
 
-// Every map gets a row. Rows are created once per queue/filter and then only the ones whose
-// status changed are updated, so even very long queues stay smooth and scrollable.
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec <= 0) return '';
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  return h ? `${h}h ${m}m` : m ? `${m} min` : 'under a minute';
+}
+
+// ---------------------------------------------------------------- mirrors
+function renderMirrors() {
+  const html = S.mirrors.map(m => {
+    const cls = m.unavailable ? 'dead' : m.enabled ? (m.inflight ? 'mirror on busy' : (m.waiting ? 'mirror on hold' : 'mirror on')) : 'mirror off';
+    const live = S.running && m.enabled
+      ? (m.waiting ? `<span class="waiting">waiting ${m.waiting}s</span>`
+        : `${m.inflight}/${m.cap}${m.speed ? ` · <b>${m.speed} MB/s</b>` : ''}${m.done ? ` · ${m.done}` : ''}`)
+      : (m.coverage === 'ranked' ? 'ranked & loved only' : 'full archive');
+    return `<div class="${m.unavailable ? 'mirror dead' : cls}">
+      <div class="dot"></div>
+      <input type="checkbox" ${m.enabled ? 'checked' : ''} ${m.unavailable ? 'disabled' : ''}
+             onchange="act('mirror', {key: '${m.key}', enabled: this.checked})" aria-label="${esc(m.name)}">
+      <div class="who">
+        <b>${esc(m.name)}
+          <i class="tip" tabindex="0" aria-label="About ${esc(m.name)}">i
+            <span class="tip-body" role="tooltip">${esc(m.about)}
+              ${m.by ? `<br><br>Run by <b>${esc(m.by)}</b>.` : ''}
+              ${m.home ? `<br><a href="${esc(m.home)}" target="_blank" rel="noopener">${esc(m.home)}</a>` : ''}
+              ${m.unavailable ? `<br><br><b>Disabled:</b> ${esc(m.unavailable)}` : ''}
+            </span>
+          </i>
+        </b>
+        <small>${m.unavailable ? esc(m.unavailable) : esc(m.about)}</small>
+      </div>
+      <div class="live">${live}</div>
+    </div>`;
+  }).join('');
+  if (html !== lastMirrorHtml) $('mirrorList').innerHTML = lastMirrorHtml = html;
+  const on = S.mirrors.filter(m => m.enabled);
+  $('mirrorsSummary').textContent = on.length ? `· ${on.map(m => m.name).join(', ')}` : '· none enabled';
+}
+
+// ---------------------------------------------------------------- queue list
 function rowContent(i) {
+  const where = i.status === 'done' && i.source ? ` · via ${esc(i.source)}` : '';
   return `<div class="meta">
       <div class="t">${esc(i.title || 'Beatmap set #' + i.id)}</div>
-      <div class="a">${i.artist ? esc(i.artist) + ' · ' : ''}<a href="https://osu.ppy.sh/beatmapsets/${i.id}" target="_blank" rel="noopener">#${i.id}</a>${i.note && i.status === 'have' ? ' · ' + esc(i.note) : ''}</div>
-      ${i.status === 'failed' && i.error ? `<div class="err">${esc(i.error)}</div>` : ''}
+      <div class="a">${i.artist ? esc(i.artist) + ' · ' : ''}<a href="https://osu.ppy.sh/beatmapsets/${i.id}" target="_blank" rel="noopener">#${i.id}</a>${i.note && i.status === 'have' ? ' · ' + esc(i.note) : ''}${where}</div>
+      ${['failed', 'gone', 'not_on_mirrors'].includes(i.status) && i.error ? `<div class="err">${esc(i.error)}</div>` : ''}
     </div>
-    ${!S.running && ['queued', 'have', 'skipped'].includes(i.status)
+    ${!S.running && !S.osu_running && ['queued', 'have', 'skipped'].includes(i.status)
       ? `<button class="btn sm ghost" onclick="act('toggle', {id: '${i.id}'})">${i.status === 'queued' ? 'Skip' : 'Download anyway'}</button>` : ''}
     <span class="pill">${STATUS[i.status] || i.status}</span>`;
 }
@@ -527,7 +615,7 @@ function renderList(total) {
   }
   for (const i of rows) {
     const el = rowEls.get(i.id);
-    const sig = [i.status, i.title, i.artist, i.error, i.note, S.running].join('|');
+    const sig = [i.status, i.title, i.artist, i.error, i.note, i.source, S.running].join('|');
     if (el.dataset.sig !== sig) {
       el.dataset.sig = sig;
       el.className = 'item s-' + i.status;
@@ -544,117 +632,128 @@ function jumpToCurrent() {
   if (el) box.scrollTop = el.offsetTop - box.clientHeight / 2 + el.offsetHeight / 2;
 }
 
-function fmtTime(sec) {
-  if (!isFinite(sec) || sec <= 0) return '';
-  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
-  return h ? `${h}h ${m}m` : m ? `${m} min` : 'under a minute';
-}
-
+// ---------------------------------------------------------------- main render
 function render() {
   if (!S) return;
+  const busy = S.running || S.osu_running;
   const signedIn = !!S.user;
 
-  // step 1
   $('userChip').classList.toggle('hidden', !signedIn);
   if (signedIn) { $('userName').textContent = S.user.username; $('userAvatar').src = S.user.avatar || ''; }
-  $('loginForm').classList.toggle('hidden', signedIn || S.signing_in);
-  $('loginWaiting').classList.toggle('hidden', !S.signing_in);
-  $('loginDone').classList.toggle('hidden', !signedIn || S.signing_in);
-  $('n1').classList.toggle('ok', signedIn); $('n1').textContent = signedIn ? '✓' : '1';
-  $('loginBtn').disabled = !!S.busy || S.running;
 
-  // step 2: only fill inputs the user isn't editing
+  // step 1
   const setVal = (el, v) => { if (document.activeElement !== el) el.value = v; };
   setVal($('folder'), S.folder); setVal($('songsDir'), S.songs_dir);
   if (!$('userQuery').dataset.init) { $('userQuery').value = S.last_user_query; $('userQuery').dataset.init = 1; }
   document.querySelectorAll('[data-opt]').forEach(el => {
     if (el.type === 'checkbox') el.checked = !!S.opts[el.dataset.opt]; else setVal(el, S.opts[el.dataset.opt]);
   });
-  $('exportLib').classList.toggle('hidden', !S.songs_dir);
-  const client = S.opts.import_client || 'stable';
-  document.querySelectorAll('input[name=client]').forEach(el => el.checked = el.value === client);
+  document.querySelectorAll('input[name=client]').forEach(el => el.checked = el.value === (S.opts.import_client || 'stable'));
   for (const [c, id] of [['stable', 'whereStable'], ['lazer', 'whereLazer']]) {
-    const path = S.clients[c];
-    const sig = c + '|' + path;
-    if ($(id).dataset.sig === sig) continue;  // don't rebuild under the cursor every poll
+    const path = S.clients[c], sig = c + '|' + path;
+    if ($(id).dataset.sig === sig) continue;
     $(id).dataset.sig = sig;
-    $(id).innerHTML = (path
-      ? `<span class="path" title="${esc(path)}">Found: ${esc(path)}</span>`
-      : `<span class="missing">Not found on this PC</span>`)
+    $(id).innerHTML = (path ? `<span class="path" title="${esc(path)}">Found: ${esc(path)}</span>`
+                            : `<span class="missing">Not found on this PC</span>`)
       + ` · <button class="linkbtn" onclick="event.preventDefault(); locate('${c}')">${path ? 'Change' : 'Locate…'}</button>`;
   }
-  $('importAll').textContent = `Import all into osu!${client}`;
+  $('exportLib').classList.toggle('hidden', !S.songs_dir);
   $('historyInfo').innerHTML = S.history_count
     ? `This app remembers ${S.history_count} maps you've downloaded and skips them. <button class="linkbtn" onclick="if(confirm('Forget download history?')) act('clear-history')">Forget</button> · <a href="/api/export?which=history">Export</a>`
-    : '';
-  $('fetchBtn').disabled = !!S.busy || S.running;
+    : 'Maps you already have are skipped: anything in the download folder, your Songs folder, or downloaded before.';
+  $('fetchBtn').disabled = !!S.busy || busy;
   const hasQueue = S.queue.length > 0;
-  $('n2').classList.toggle('ok', hasQueue); $('n2').textContent = hasQueue ? '✓' : '2';
-  $('step2').classList.toggle('locked', S.running);
+  $('n1').classList.toggle('ok', hasQueue); $('n1').textContent = hasQueue ? '✓' : '1';
+  $('step1').classList.toggle('locked', busy);
+  renderMirrors();
 
-  // step 3
+  // step 2
   const c = S.counts, total = S.queue.length;
-  const want = (c.queued || 0) + (c.downloading || 0) + (c.done || 0) + (c.failed || 0) + (c.cancelled || 0);
-  const finished = (c.done || 0) + (c.failed || 0);
+  const want = (c.queued || 0) + (c.downloading || 0) + (c.done || 0) + (c.failed || 0) + (c.cancelled || 0)
+    + (c.not_on_mirrors || 0) + (c.osu_only || 0) + (c.gone || 0);
+  const finished = (c.done || 0) + (c.failed || 0) + (c.not_on_mirrors || 0) + (c.osu_only || 0) + (c.gone || 0);
   $('bar').style.width = want ? (100 * finished / want) + '%' : '0';
 
-  $('startBtn').classList.toggle('hidden', S.running);
-  $('startBtn').disabled = !signedIn || !c.queued;
-  $('startBtn').textContent = !signedIn ? 'Sign in first'
-    : c.queued ? `Download ${c.queued} map${c.queued === 1 ? '' : 's'}` : 'Nothing to download';
-  $('pauseBtn').classList.toggle('hidden', !S.running);
+  $('startBtn').classList.toggle('hidden', busy);
+  $('startBtn').disabled = !c.queued || !!S.busy;
+  $('startBtn').textContent = c.queued ? `Download ${c.queued} map${c.queued === 1 ? '' : 's'}` : 'Nothing to download';
+  $('pauseBtn').classList.toggle('hidden', !busy);
   $('pauseBtn').textContent = S.paused ? 'Resume' : 'Pause';
-  $('stopBtn').classList.toggle('hidden', !S.running);
-  $('retryBtn').classList.toggle('hidden', S.running || !((c.failed || 0) + (c.cancelled || 0)));
+  $('stopBtn').classList.toggle('hidden', !busy);
+  $('retryBtn').classList.toggle('hidden', busy || !((c.failed || 0) + (c.cancelled || 0) + (c.not_on_mirrors || 0)));
 
   const cur = S.queue.find(i => i.status === 'downloading');
+  const j = S.job || {};
   let now = '';
   if (S.busy) now = `<div class="spinner"></div>${esc(S.busy)}`;
-  else if (S.running && S.paused) now = '⏸ Paused';
-  else if (S.running) {
-    const j = S.job || {};
+  else if (busy && S.paused) now = '⏸ Paused';
+  else if (busy) {
     const eta = fmtTime(j.eta);
-    const etaText = eta ? ` · ~${eta} left` + (j.hourly_limit && (c.queued || 0) > 0 && j.eta > 3600 ? ' incl. osu! limit waits' : '') : '';
+    const rate = j.speed ? ` · ${j.speed} MB/s` : '';
     if (j.limited && j.retry_at) {
       const at = new Date(j.retry_at * 1000).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
-      now = `<div class="spinner"></div><span class="waiting">osu!'s hourly download limit reached. Retrying at <b>${at}</b> (attempt ${j.retry_attempt} of ${j.retry_attempts})</span>`
-          + ` <span class="grow"></span> ${finished}/${want}${etaText}`;
+      now = `<div class="spinner"></div><span class="waiting">osu!'s hourly download limit reached. Retrying at <b>${at}</b> (attempt ${j.retry_attempt} of ${j.retry_attempts})</span>`;
     } else {
-      now = `<div class="spinner"></div>` + (cur ? `Downloading <b>${esc(cur.title || '#' + cur.id)}</b>` : 'Working…')
-          + ` <span class="grow"></span> ${finished}/${want}${etaText}`;
+      now = `<div class="spinner"></div>` + (cur ? `Downloading <b>${esc(cur.title || '#' + cur.id)}</b>` : 'Working…');
     }
+    now += ` <span class="grow"></span> ${finished}/${want}${rate}${eta ? ` · ~${eta} left` : ''}`;
   } else if (total) {
     const n = c.queued || 0;
-    // ~6 s per map, plus an hour's wait for every 200 maps after the first 200
-    const est = n ? fmtTime(n * ((S.opts.delay || 0) + 3) + Math.floor((n - 1) / 200) * 3600) : '';
+    const est = n ? fmtTime(n * 1.2) : '';
     now = `${total} map${total === 1 ? '' : 's'} in queue` + (c.have ? ` · ${c.have} skipped because you already have them` : '')
         + (est ? ` · about ${est} to download` : '');
   }
   $('now').innerHTML = now;
-  $('n3').classList.toggle('ok', !S.running && !!c.done && !c.queued);
+  $('n2').classList.toggle('ok', !busy && !!c.done && !c.queued);
 
-  const statKeys = ['all', 'queued', 'downloading', 'done', 'failed', 'have', 'skipped', 'cancelled'];
+  const statKeys = ['all', 'queued', 'downloading', 'done', 'not_on_mirrors', 'osu_only', 'gone', 'failed', 'have', 'skipped', 'cancelled'];
   const statsHtml = total ? statKeys.filter(k => k === 'all' || c[k]).map(k =>
     `<span class="stat ${filter === k ? 'on' : ''}" onclick="setFilter('${k}')">${k === 'all' ? 'All' : STATUS[k]} <b>${k === 'all' ? total : c[k]}</b></span>`
-  ).join('') + (S.running ? `<span class="stat" onclick="jumpToCurrent()">Jump to current ↓</span>` : '') : '';
-  if (statsHtml !== lastStatsHtml) $('stats').innerHTML = lastStatsHtml = statsHtml;  // don't swap buttons mid-click
+  ).join('') + (busy ? `<span class="stat" onclick="jumpToCurrent()">Jump to current ↓</span>` : '') : '';
+  if (statsHtml !== lastStatsHtml) $('stats').innerHTML = lastStatsHtml = statsHtml;
 
   renderList(total);
 
-  // finished banner
-  const showDone = !S.running && (c.done || c.failed) && !c.queued;
+  const showDone = !busy && (c.done || c.failed) && !c.queued;
   $('doneBanner').classList.toggle('show', !!showDone);
   if (showDone) {
     $('doneTitle').textContent = `Downloaded ${c.done || 0} map${c.done === 1 ? '' : 's'}` + (c.failed ? `, ${c.failed} failed` : '');
     $('doneSub').textContent = S.opts.auto_open ? 'They were sent to osu! as they finished.' : 'Send them to osu! to import. Big batches can take a moment.';
+    $('importAll').textContent = `Import all into osu!${S.opts.import_client}`;
     $('exportFailed').classList.toggle('hidden', !c.failed);
   }
-  if (wasRunning && !S.running) {
+
+  // step 3: maps the mirrors didn't have
+  const missing = (c.not_on_mirrors || 0) + (c.failed || 0), osuOnly = (c.osu_only || 0), gone = (c.gone || 0);
+  const show3 = !busy && (missing || osuOnly || gone);
+  $('step3').classList.toggle('hidden', !show3);
+  if (show3) {
+    $('missingSub').textContent = missing
+      ? `${missing} map${missing === 1 ? " wasn't" : "s weren't"} available from the mirrors you have on. Some may still be on osu! itself.`
+      : `${osuOnly} map${osuOnly === 1 ? '' : 's'} can only come from osu!${gone ? `, and ${gone} ${gone === 1 ? 'is' : 'are'} gone for good` : ''}.`;
+    $('missingCheck').classList.toggle('hidden', !missing || S.checked_missing);
+    $('checkBtn').disabled = !!S.busy;
+    $('missingResult').classList.toggle('hidden', !(osuOnly || gone));
+    if (osuOnly || gone) {
+      $('missingSummary').innerHTML = (osuOnly
+          ? `<b>${osuOnly} map${osuOnly === 1 ? '' : 's'} can still be downloaded from osu!</b>`
+          : `<b>Nothing left to fetch from osu!</b>`)
+        + (gone ? ` ${gone} ${gone === 1 ? 'map is' : 'maps are'} deleted or download-disabled, so nowhere has ${gone === 1 ? 'it' : 'them'}.` : '');
+      $('osuSignIn').classList.toggle('hidden', signedIn || !!S.signing_in || !osuOnly);
+      $('loginWaiting').classList.toggle('hidden', !S.signing_in || !osuOnly);
+      $('osuReady').classList.toggle('hidden', !signedIn || !!S.signing_in || !osuOnly);
+      $('loginBtn').disabled = !!S.busy;
+      $('osuStartBtn').disabled = !!S.busy;
+    }
+    $('n3').classList.toggle('ok', !missing && !osuOnly);
+  }
+
+  if (wasRunning && !busy) {
     toast('Downloads finished');
     if (document.hidden && 'Notification' in window && Notification.permission === 'granted')
       new Notification('osu! Beatmap Downloader', {body: $('doneTitle').textContent});
   }
-  wasRunning = S.running;
+  wasRunning = busy;
 }
 
 function appendLogs(logs) {

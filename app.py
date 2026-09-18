@@ -2,6 +2,9 @@
 
 Run `python app.py` (or start.bat, or the built exe) and a browser tab opens. Everything stays on
 this machine: the server only listens on 127.0.0.1.
+
+Main flow: fetch a list over plain HTTP, download from community mirrors. No account, no Chrome.
+Optional last step: sign in and fetch whatever no mirror had from osu.ppy.sh.
 """
 import json
 import os
@@ -17,7 +20,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import osu_core as core
+import mirrors
+import osu_api
+import osu_local
 
 FROZEN = getattr(sys, "frozen", False)  # running as the PyInstaller build
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))  # bundled resources
@@ -51,14 +56,14 @@ os.environ["SE_CACHE_PATH"] = str(DATA / "selenium")
 for _key in ("TEMP", "TMP"):  # remembered so osu! can be launched with the real TEMP
     os.environ.setdefault(f"OBD_ORIGINAL_{_key}", os.environ.get(_key, ""))
     os.environ[_key] = str(TEMP_DIR)
-PROFILE_DIR = DATA / "chrome-profile"  # the signed-in osu! session lives here
+PROFILE_DIR = DATA / "chrome-profile"  # only used by the optional osu! step
 CONFIG_FILE = DATA / "config.json"
 HISTORY_FILE = DATA / "history.json"
 INDEX = ROOT / "web" / "index.html"
 PREFERRED_PORT = 8765
 
-DEFAULT_OPTS = {"no_video": False, "auto_open": False, "import_client": "stable", "show_browser": False,
-                "delay": 5, "batch": 60, "rest": 15, "cooldown": 300, "timeout": 90}
+DEFAULT_OPTS = {"no_video": True, "auto_open": False, "import_client": "stable", "show_browser": False,
+                "workers": 10, "delay": 5, "batch": 60, "rest": 15, "cooldown": 300, "timeout": 90}
 
 
 def _load(path, default):
@@ -83,22 +88,26 @@ class State:
         self.songs_dir = cfg.get("songs_dir", "")
         self.osu_paths = {"stable": "", "lazer": "", **cfg.get("osu_paths", {})}  # user-picked installs
         self.opts = {**DEFAULT_OPTS, **cfg.get("opts", {})}
+        self.mirrors = {**mirrors.DEFAULT_ENABLED, **cfg.get("mirrors", {})}
         self.last_user_query = cfg.get("last_user_query", "")
-        self.user = cfg.get("user") if PROFILE_DIR.is_dir() else None  # confirmed on startup
+        self.user = cfg.get("user") if PROFILE_DIR.is_dir() else None  # confirmed when needed
         self.history = set(_load(HISTORY_FILE, []))
         self.owned = set()
         self.queue = []
         self.logs = []
         self.busy = ""
         self.busy_token = None
-        self.job = None
-        self.signing_in = None  # (cancel, done) events while the sign-in window is open
+        self.job = None            # mirror download
+        self.osu_job = None        # optional osu.ppy.sh download
+        self.signing_in = None     # (cancel, done) events while the sign-in window is open
+        self.checked_missing = False
 
     # -- persistence
     def save_config(self):
         _save(CONFIG_FILE, {
             "user": self.user, "folder": self.folder, "songs_dir": self.songs_dir,
-            "osu_paths": self.osu_paths, "opts": self.opts, "last_user_query": self.last_user_query,
+            "osu_paths": self.osu_paths, "opts": self.opts, "mirrors": self.mirrors,
+            "last_user_query": self.last_user_query,
         })
 
     def save_history(self):
@@ -111,11 +120,6 @@ class State:
             del self.logs[:-2000]  # keep memory bounded
         print(f"[{level}] {msg}", flush=True)
 
-    def check_job(self):
-        if self.job and self.job.signed_out and self.user:
-            self.user = None
-            self.save_config()
-
     def on_item(self, item):
         if item["status"] == "done":
             with self.lock:
@@ -126,7 +130,7 @@ class State:
         """Which osu! installs exist (cached briefly, since this runs on every UI poll)."""
         now = time.time()
         if now - getattr(self, "_clients_at", 0) > 10:
-            self._clients = {c: core.find_osu(c, self.songs_dir, self.osu_paths[c])
+            self._clients = {c: osu_local.find_osu(c, self.songs_dir, self.osu_paths[c])
                              for c in ("stable", "lazer")}
             self._clients_at = now
         return self._clients
@@ -134,11 +138,19 @@ class State:
     def running(self):
         return bool(self.job and self.job.thread.is_alive())
 
+    def osu_running(self):
+        return bool(self.osu_job and self.osu_job.thread.is_alive())
+
+    def check_job(self):
+        if self.osu_job and getattr(self.osu_job, "signed_out", False) and self.user:
+            self.user = None
+            self.save_config()
+
     def refresh_owned(self):
         self.owned = set()
         if self.songs_dir:
             try:
-                self.owned = core.scan_songs_folder(self.songs_dir)
+                self.owned = osu_api.scan_songs_folder(self.songs_dir)
             except (ValueError, OSError) as e:
                 self.log("warn", f"Couldn't read Songs folder: {e}")
 
@@ -146,7 +158,7 @@ class State:
         sid = item["id"]
         if sid in self.owned:
             return "have", "Already in your osu! Songs folder"
-        if core.find_osz(self.folder, sid):
+        if osu_api.find_osz(self.folder, sid):
             return "have", "Already in the download folder"
         if sid in self.history:
             return "have", "Downloaded in an earlier session"
@@ -157,8 +169,11 @@ class State:
         for it in items:
             it["status"], it["note"] = self.classify(it)
             it.setdefault("error", "")
+            it.setdefault("source", "")
+            it["tried"] = []
         with self.lock:
             self.queue = items
+            self.checked_missing = False
 
     def snapshot(self, log_since):
         self.check_job()
@@ -166,24 +181,51 @@ class State:
             counts = {}
             for it in self.queue:
                 counts[it["status"]] = counts.get(it["status"], 0) + 1
+            job = self.job or self.osu_job
+            remaining = counts.get("queued", 0) + counts.get("downloading", 0)
             return {
                 "user": self.user, "signing_in": bool(self.signing_in),
                 "folder": self.folder, "songs_dir": self.songs_dir, "opts": self.opts,
                 "last_user_query": self.last_user_query, "history_count": len(self.history),
-                "clients": self.clients(),
+                "clients": self.clients(), "mirrors": self.mirror_rows(),
                 "queue": self.queue, "counts": counts, "busy": self.busy,
-                "running": self.running(),
-                "job": self.job.status(counts.get("queued", 0) + counts.get("downloading", 0))
-                       if self.running() else None,
-                "paused": bool(self.job and self.job.pause_flag.is_set()),
+                "running": self.running(), "osu_running": self.osu_running(),
+                "checked_missing": self.checked_missing,
+                "job": job.status(remaining) if job and job.thread.is_alive() else None,
+                "paused": bool(job and job.pause_flag.is_set()),
                 "logs": [l for l in self.logs if l["i"] >= log_since],
             }
+
+    def mirror_rows(self):
+        """Mirror cards for the UI: live while downloading, last run's totals afterwards."""
+        if self.running():
+            return self.job.status(0)["mirrors"]
+        last = {}
+        if self.job:  # keep the finished run's numbers on screen
+            last = {m["key"]: m for m in self.job.status(0)["mirrors"]}
+        rows = []
+        for spec in mirrors.MIRRORS:
+            was = last.get(spec["key"], {})
+            rows.append({
+                "key": spec["key"], "name": spec["name"], "by": spec.get("by", ""),
+                "home": spec.get("home", ""), "about": spec.get("about", ""),
+                "coverage": spec["coverage"], "unavailable": spec.get("unavailable", ""),
+                "enabled": bool(self.mirrors.get(spec["key"])) and not spec.get("unavailable"),
+                "inflight": 0, "cap": 0, "max_cap": spec["cap"], "speed": was.get("speed"),
+                "done": was.get("done", 0), "failed": was.get("failed", 0), "mb": was.get("mb", 0),
+                "waiting": 0, "quota_note": "", "last_error": was.get("last_error", ""),
+            })
+        return rows
 
 
 S = State()
 
 
 # ---------------------------------------------------------------- actions
+
+def plural(n, one, many=None):
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
 
 def in_background(label, fn):
     token = object()
@@ -193,27 +235,235 @@ def in_background(label, fn):
         try:
             fn()
         except Exception as e:
-            S.log("error", core.friendly_error(e))
+            S.log("error", osu_local.friendly_error(e))
         finally:
             if S.busy_token is token:  # the task may have updated the label with its progress
                 S.busy, S.busy_token = "", None
     threading.Thread(target=run, daemon=True).start()
 
 
-def act_login(_):
-    if S.running() or S.busy:
+def act_fetch(body):
+    if S.running() or S.osu_running() or S.busy:
         raise ValueError("Wait for the current task to finish first.")
+    query = (body.get("user") or "").strip() or (str(S.user["id"]) if S.user else "")
+    if not query:
+        raise ValueError("Enter a player name, profile link or user ID.")
+    kind = body.get("kind", "most_played")
+    if kind not in osu_api.LIST_KINDS:
+        raise ValueError("Unknown list type.")
+    limit = max(1, min(int(body.get("limit") or 100), 20000))
+    S.last_user_query = body.get("user", "")
+    S.save_config()
+
+    def run():
+        S.log("info", f"Fetching up to {limit} maps from {query}'s {kind.replace('_', ' ')} list…")
+        items = osu_api.fetch_user_maps(query, kind, limit,
+                                        on_progress=lambda n: setattr(S, "busy", f"Fetching… {n} maps"))
+        S.set_queue(items)
+        have = sum(1 for i in items if i["status"] == "have")
+        S.log("ok", f"Found {plural(len(items), 'beatmap set')}"
+                          + (f", {have} of which you already have." if have else "."))
+    in_background("Fetching…", run)
+
+
+def act_paste(body):
+    if S.running() or S.osu_running() or S.busy:
+        raise ValueError("Wait for the current task to finish first.")
+    ids = osu_api.parse_ids(body.get("text", ""))
+    if not ids:
+        raise ValueError("No beatmap IDs or links found in that text.")
+    S.set_queue([{"id": i, "title": "", "artist": "", "cover": "", "status_hint": ""} for i in ids])
+    S.log("ok", f"Loaded {len(ids)} beatmap sets from your list.")
+
+
+def act_settings(body):
+    with S.lock:
+        if "folder" in body and body["folder"].strip():
+            S.folder = body["folder"].strip()
+        if "songs_dir" in body:
+            S.songs_dir = body["songs_dir"].strip()
+            S._clients_at = 0
+        for client, folder in (body.get("osu_paths") or {}).items():
+            if client not in S.osu_paths:
+                continue
+            if folder and not osu_local.osu_in_folder(client, folder):
+                raise ValueError(f"Couldn't find osu!{client} in that folder. Pick the folder that contains osu!.exe.")
+            S.osu_paths[client] = folder
+            S._clients_at = 0
+        if "opts" in body:
+            for k, v in body["opts"].items():
+                if k == "import_client" and v not in ("stable", "lazer"):
+                    raise ValueError("Pick osu!stable or osu!lazer.")
+                if k in DEFAULT_OPTS:
+                    S.opts[k] = type(DEFAULT_OPTS[k])(v)
+        S.save_config()
+        if ("folder" in body or "songs_dir" in body) and not S.running():
+            S.set_queue(S.queue)  # re-evaluate what's already owned
+
+
+def act_mirror(body):
+    key, enabled = body.get("key"), bool(body.get("enabled"))
+    spec = mirrors.BY_KEY.get(key)
+    if not spec:
+        raise ValueError("Unknown mirror.")
+    if spec.get("unavailable") and enabled:
+        raise ValueError(spec["unavailable"])
+    S.mirrors[key] = enabled
+    S.save_config()
+    if S.running():
+        S.job.set_mirror(key, enabled)
+
+
+def act_start(_):
+    if S.running() or S.osu_running():
+        raise ValueError("Already downloading.")
+    if S.busy:
+        raise ValueError("Wait for the current task to finish first.")
+    if not any(i["status"] == "queued" for i in S.queue):
+        raise ValueError("Nothing to download: the queue is empty or you already have everything.")
+    if not any(v and not mirrors.BY_KEY[k].get("unavailable") for k, v in S.mirrors.items()):
+        raise ValueError("Turn on at least one mirror first.")
+    for it in S.queue:
+        it["tried"] = []
+        it.pop("attempts", None)
+        it.pop("hedged", None)
+    opts = {**S.opts, "songs_dir": S.songs_dir, "osu_paths": dict(S.osu_paths)}
+    S.job = mirrors.MirrorDownloader(S.queue, S.folder, opts, S.on_item, S.log, dict(S.mirrors))
+    S.checked_missing = False
+    S.job.start()
+
+
+def act_pause(_):
+    job = S.job if S.running() else (S.osu_job if S.osu_running() else None)
+    if job:
+        if job.pause_flag.is_set():
+            job.pause_flag.clear()
+            S.log("info", "Resumed.")
+        else:
+            job.pause_flag.set()
+            S.log("info", "Paused.")
+
+
+def act_stop(_):
+    for job in (S.job, S.osu_job):
+        if job and job.thread.is_alive():
+            job.stop()
+    S.log("info", "Stopping…")
+
+
+def act_retry(_):
+    if S.running() or S.osu_running():
+        raise ValueError("Wait for the current run to finish.")
+    n = 0
+    for it in S.queue:
+        if it["status"] in ("failed", "cancelled", "not_on_mirrors"):
+            it.update(status="queued", error="", tried=[])
+            it.pop("attempts", None)
+            n += 1
+    S.checked_missing = False
+    S.log("info", f"Re-queued {n} maps.")
+
+
+def act_toggle(body):
+    """Flip a single item between skipped and queued."""
+    if S.running() or S.osu_running():
+        raise ValueError("Can't change the queue while downloading.")
+    for it in S.queue:
+        if it["id"] == str(body.get("id")):
+            if it["status"] in ("have", "skipped"):
+                it["status"] = "queued"
+            elif it["status"] == "queued":
+                it["status"] = "skipped"
+
+
+def act_clear_queue(_):
+    if S.running() or S.osu_running():
+        raise ValueError("Stop the download first.")
+    S.queue = []
+
+
+def act_clear_history(_):
+    S.history = set()
+    S.save_history()
+    if not S.running():
+        S.set_queue(S.queue)
+    S.log("info", "Forgot download history.")
+
+
+# ---------------------------------------------------------------- the optional osu! step
+
+def missing_items():
+    return [i for i in S.queue if i["status"] in ("not_on_mirrors", "osu_only", "gone")]
+
+
+def act_check_missing(_):
+    """Ask osu! which of the maps no mirror had still exist."""
+    if S.busy or S.running():
+        raise ValueError("Wait for the current task to finish first.")
+    todo = [i for i in S.queue if i["status"] in ("not_on_mirrors", "failed")]
+    if not todo:
+        raise ValueError("Nothing to check.")
+
+    def run():
+        S.log("info", f"Checking {plural(len(todo), 'map')} against osu.ppy.sh…")
+        gone = only = 0
+        for n, item in enumerate(todo, 1):
+            if S.busy == "":            # stopped
+                break
+            S.busy = f"Checking on osu!… {n}/{len(todo)}"
+            info = osu_api.lookup_beatmapset(item["id"])
+            if info.get("exists") is False:
+                item.update(status="gone", error="Deleted from osu!")
+                gone += 1
+            elif info.get("exists") is None:
+                item.update(error=f"Couldn't check ({info.get('reason', 'error')})")
+            elif info.get("download_disabled"):
+                item.update(status="gone", error="Download disabled on osu! " +
+                                                 (info.get("more_information") or "(usually a copyright claim)"))
+                gone += 1
+            else:
+                item.update(status="osu_only", error="",
+                            title=item.get("title") or info.get("title", ""),
+                            artist=item.get("artist") or info.get("artist", ""))
+                only += 1
+        S.checked_missing = True
+        S.log("ok", f"{plural(only, 'map')} can still be downloaded from osu!; "
+                          f"{gone} {'is' if gone == 1 else 'are'} gone for good.")
+    in_background("Checking on osu!…", run)
+
+
+def act_start_osu(_):
+    """Download the 'osu! only' maps with Chrome, after signing in."""
+    if S.running() or S.osu_running() or S.busy:
+        raise ValueError("Wait for the current task to finish first.")
+    if not S.user:
+        raise ValueError("Sign in to osu! first.")
+    todo = [i for i in S.queue if i["status"] == "osu_only"]
+    if not todo:
+        raise ValueError("No maps need osu! right now.")
+    import osu_browser
+    for it in todo:
+        it["status"] = "queued"
+    opts = {**S.opts, "songs_dir": S.songs_dir, "osu_paths": dict(S.osu_paths)}
+    S.osu_job = osu_browser.BrowserDownloader(todo, PROFILE_DIR, S.folder, opts, S.on_item, S.log)
+    S.osu_job.start()
+
+
+def act_login(_):
+    if S.running() or S.osu_running() or S.busy:
+        raise ValueError("Wait for the current task to finish first.")
+    import osu_browser
     cancel, done = threading.Event(), threading.Event()
     S.signing_in = (cancel, done)
 
     def run():
         try:
             S.log("info", "Opened a Chrome window. Sign in to osu! there.")
-            user = core.sign_in(PROFILE_DIR, cancel, done)
+            user = osu_browser.sign_in(PROFILE_DIR, cancel, done)
             S.user = user
             S.save_config()
             S.log("ok", f"Signed in as {user['username']}.")
-        except core.SignInCancelled as e:
+        except osu_browser.SignInCancelled as e:
             S.log("info", str(e))
         finally:
             S.signing_in = None
@@ -231,7 +481,7 @@ def act_finish_login(_):
 
 
 def act_logout(_):
-    if S.running() or S.busy:
+    if S.running() or S.osu_running() or S.busy:
         raise ValueError("Wait for the current task to finish first.")
     shutil.rmtree(PROFILE_DIR, ignore_errors=True)
     S.user = None
@@ -239,159 +489,22 @@ def act_logout(_):
     S.log("info", "Signed out. This app no longer has access to your osu! account.")
 
 
-def verify_sign_in():
-    """On startup, make sure the saved session still works (it lasts about a month)."""
-    if not PROFILE_DIR.is_dir() or S.busy:
-        return
-
-    def run():
-        user = core.check_profile(PROFILE_DIR)
-        if S.user and not user:
-            S.log("warn", "Your osu! sign-in has expired. Please sign in again.")
-        S.user = user
-        S.save_config()
-    in_background("Checking your osu! sign-in…", run)
-
-
-def act_fetch(body):
-    if S.running() or S.busy:
-        raise ValueError("Wait for the current download to finish first.")
-    query = (body.get("user") or "").strip() or (str(S.user["id"]) if S.user else "")
-    kind = body.get("kind", "most_played")
-    if kind not in ("most_played", "favourite", "ranked", "loved", "graveyard", "guest", "nominated"):
-        raise ValueError("Unknown list type.")
-    limit = max(1, min(int(body.get("limit") or 100), 20000))
-    S.last_user_query = body.get("user", "")
-    S.save_config()
-
-    def run():
-        S.log("info", f"Fetching up to {limit} maps from {query}'s {kind.replace('_', ' ')} list…")
-        items = core.fetch_user_maps(query, kind, limit,
-                                     on_progress=lambda n: setattr(S, "busy", f"Fetching… {n} maps"))
-        S.set_queue(items)
-        have = sum(1 for i in items if i["status"] == "have")
-        S.log("ok", f"Found {len(items)} beatmap sets" + (f", {have} of which you already have." if have else "."))
-    in_background("Fetching…", run)
-
-
-def act_paste(body):
-    if S.running() or S.busy:
-        raise ValueError("Wait for the current download to finish first.")
-    ids = core.parse_ids(body.get("text", ""))
-    if not ids:
-        raise ValueError("No beatmap IDs or links found in that text.")
-    S.set_queue([{"id": i, "title": "", "artist": "", "cover": ""} for i in ids])
-    S.log("ok", f"Loaded {len(ids)} beatmap sets from your list.")
-
-
-def act_settings(body):
-    with S.lock:
-        if "folder" in body and body["folder"].strip():
-            S.folder = body["folder"].strip()
-        if "songs_dir" in body:
-            S.songs_dir = body["songs_dir"].strip()
-        for client, folder in (body.get("osu_paths") or {}).items():
-            if client not in S.osu_paths:
-                continue
-            if folder and not core.osu_in_folder(client, folder):
-                raise ValueError(f"Couldn't find osu!{client} in that folder. Pick the folder that contains osu!.exe.")
-            S.osu_paths[client] = folder
-            S._clients_at = 0  # re-detect
-        if "opts" in body:
-            for k, v in body["opts"].items():
-                if k == "import_client" and v not in ("stable", "lazer"):
-                    raise ValueError("Pick osu!stable or osu!lazer.")
-                if k in DEFAULT_OPTS:
-                    S.opts[k] = type(DEFAULT_OPTS[k])(v)
-        S.save_config()
-        if "songs_dir" in body:
-            S._clients_at = 0
-        if ("folder" in body or "songs_dir" in body) and not S.running():
-            S.set_queue(S.queue)  # re-evaluate what's already owned
-
-
-def act_start(_):
-    if S.running():
-        raise ValueError("Already downloading.")
-    if S.busy:
-        raise ValueError("Wait for the current task to finish first.")
-    if not S.user:
-        raise ValueError("Sign in first.")
-    if not any(i["status"] == "queued" for i in S.queue):
-        raise ValueError("Nothing to download: the queue is empty or you already have everything.")
-    opts = {**S.opts, "songs_dir": S.songs_dir, "osu_paths": dict(S.osu_paths)}
-    S.job = core.Downloader(S.queue, PROFILE_DIR, S.folder, opts, S.on_item, S.log)
-    S.job.start()
-
-
-def act_pause(_):
-    if S.running():
-        if S.job.pause_flag.is_set():
-            S.job.pause_flag.clear()
-            S.log("info", "Resumed.")
-        else:
-            S.job.pause_flag.set()
-            S.log("info", "Paused. The current map will finish first.")
-
-
-def act_stop(_):
-    if S.running():
-        S.job.stop()
-        S.log("info", "Stopping…")
-
-
-def act_retry(_):
-    if S.running():
-        raise ValueError("Wait for the current run to finish.")
-    n = 0
-    for it in S.queue:
-        if it["status"] in ("failed", "cancelled"):
-            it["status"], it["error"] = "queued", ""
-            n += 1
-    S.log("info", f"Re-queued {n} maps.")
-
-
-def act_toggle(body):
-    """Flip a single item between skipped and queued."""
-    if S.running():
-        raise ValueError("Can't change the queue while downloading.")
-    for it in S.queue:
-        if it["id"] == str(body.get("id")):
-            if it["status"] in ("have", "skipped"):
-                it["status"] = "queued"
-            elif it["status"] == "queued":
-                it["status"] = "skipped"
-
-
-def act_clear_queue(_):
-    if S.running():
-        raise ValueError("Stop the download first.")
-    S.queue = []
-
-
-def act_clear_history(_):
-    S.history = set()
-    S.save_history()
-    if not S.running():
-        S.set_queue(S.queue)
-    S.log("info", "Forgot download history.")
-
+# ---------------------------------------------------------------- importing and folders
 
 def act_open_all(_):
     files = [f for it in S.queue if it["status"] == "done"
-             for f in [it.get("file") or core.find_osz(S.folder, it["id"])] if f and os.path.exists(f)]
+             for f in [it.get("file") or osu_api.find_osz(S.folder, it["id"])] if f and os.path.exists(f)]
     if not files:
         files = sorted(str(p) for p in Path(S.folder).glob("*.osz"))
     if not files:
         raise ValueError("No .osz files waiting in the download folder (osu! may have imported them already).")
-
     client = S.opts["import_client"]
 
     def run():
         S.log("info", f"Sending {len(files)} maps to osu!{client}…")
         used = client
         for i, f in enumerate(files, 1):
-            used = core.import_into_osu(f, client, S.songs_dir, S.osu_paths)
+            used = osu_local.import_into_osu(f, client, S.songs_dir, S.osu_paths)
             S.busy = f"Importing… {i}/{len(files)}"
             time.sleep(0.4 if i > 1 else 3)  # give osu! a moment to start before sending the rest
         if used != client:
@@ -404,7 +517,7 @@ def act_open_all(_):
 def act_open_folder(body):
     path = Path(S.songs_dir if body.get("which") == "songs" else S.folder)
     path.mkdir(parents=True, exist_ok=True)
-    core.open_file(str(path))
+    osu_local.open_file(str(path))
 
 
 def act_browse(body):
@@ -430,17 +543,19 @@ def pick_folder(initial, title):
 def act_scan(_):
     if not S.songs_dir:
         raise ValueError("Pick your osu! Songs folder first.")
-    ids = core.scan_songs_folder(S.songs_dir)
+    ids = osu_api.scan_songs_folder(S.songs_dir)
     S.log("ok", f"Your Songs folder has {len(ids)} beatmap sets.")
     return {"ids": sorted(ids, key=int)}
 
 
 ACTIONS = {
-    "login": act_login, "cancel-login": act_cancel_login, "finish-login": act_finish_login, "logout": act_logout, "fetch": act_fetch, "paste": act_paste,
-    "settings": act_settings, "start": act_start, "pause": act_pause, "stop": act_stop,
-    "retry": act_retry, "toggle": act_toggle, "clear-queue": act_clear_queue,
-    "clear-history": act_clear_history, "open-all": act_open_all,
-    "open-folder": act_open_folder, "browse": act_browse, "scan": act_scan,
+    "fetch": act_fetch, "paste": act_paste, "settings": act_settings, "mirror": act_mirror,
+    "start": act_start, "pause": act_pause, "stop": act_stop, "retry": act_retry,
+    "toggle": act_toggle, "clear-queue": act_clear_queue, "clear-history": act_clear_history,
+    "check-missing": act_check_missing, "start-osu": act_start_osu,
+    "login": act_login, "cancel-login": act_cancel_login, "finish-login": act_finish_login,
+    "logout": act_logout, "open-all": act_open_all, "open-folder": act_open_folder,
+    "browse": act_browse, "scan": act_scan,
 }
 
 
@@ -478,9 +593,11 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/export":
             which = q.get("which", ["all"])[0]
             if which == "library":
-                ids = sorted(core.scan_songs_folder(S.songs_dir), key=int) if S.songs_dir else []
+                ids = sorted(osu_api.scan_songs_folder(S.songs_dir), key=int) if S.songs_dir else []
             elif which == "history":
                 ids = sorted(S.history, key=int)
+            elif which == "missing":
+                ids = [i["id"] for i in missing_items()]
             else:
                 ids = [i["id"] for i in S.queue if which == "all" or i["status"] == which]
             return self._send(200, ("\n".join(ids) + "\n").encode(), "text/plain; charset=utf-8",
@@ -528,10 +645,16 @@ JOB = None  # Windows job handle that closes our Chrome processes when the app e
 
 
 def main():
-    global PORT
+    global PORT, JOB
     for stream in (sys.stdout, sys.stderr):
         if stream:  # never let an odd character in a map title crash the log
             stream.reconfigure(errors="replace")
+    if "--selftest" in sys.argv:       # confirms a build has everything, including the optional parts
+        import osu_browser
+        print("modules ok:", ", ".join(m.__name__ for m in (osu_api, mirrors, osu_local, osu_browser)))
+        print("mirrors:", ", ".join(m["name"] for m in mirrors.MIRRORS))
+        print("chrome:", osu_browser.find_chrome() or "not installed (only needed for the osu! step)")
+        return
     if "--pick-folder" in sys.argv:
         i = sys.argv.index("--pick-folder")
         return pick_folder(*sys.argv[i + 1:i + 3])
@@ -547,10 +670,9 @@ def main():
         print("Already running, so it was opened in your browser.")
         return
 
-    global JOB
-    JOB = core.close_chrome_with_app()
+    JOB = osu_local.close_chrome_with_app()
     # we're the only copy running, so anything using our profile or temp is from an earlier session
-    stopped = core.close_leftover_chrome(PROFILE_DIR)
+    stopped = osu_local.close_leftover_chrome(PROFILE_DIR)
     if stopped:
         S.log("info", f"Closed {stopped} leftover Chrome process(es) from an earlier session.")
     for leftover in TEMP_DIR.iterdir():
@@ -559,7 +681,6 @@ def main():
         except OSError:
             pass  # still locked by something; try again next launch
 
-    verify_sign_in()
     PORT = free_port(preferred)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://127.0.0.1:{PORT}/"
@@ -574,8 +695,9 @@ def main():
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        if S.job:
-            S.job.stop()
+        for job in (S.job, S.osu_job):
+            if job:
+                job.stop()
         print("Bye!")
 
 

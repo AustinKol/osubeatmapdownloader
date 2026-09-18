@@ -24,6 +24,7 @@ rem --onedir: no unpacking into %TEMP% on every launch; Python's files go in the
   --contents-directory runtime ^
   --icon assets\icon.ico ^
   --add-data "web;web" ^
+  --hidden-import osu_browser ^
   --collect-submodules selenium.webdriver.chrome ^
   --collect-submodules selenium.webdriver.chromium ^
   --exclude-module PIL ^
